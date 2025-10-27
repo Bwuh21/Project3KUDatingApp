@@ -1,0 +1,9 @@
+[package]
+name = "jaymatch"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+actix-web = "4.11.0"
+rusqlite = "0.37.0"
+serde = "1.0.228"
