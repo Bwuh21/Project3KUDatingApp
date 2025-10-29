@@ -20,6 +20,7 @@ build/
 .idea/
 *.swp
 *.swo
+jaymatch_server/target/
 
 # OS generated files
 .DS_Store
