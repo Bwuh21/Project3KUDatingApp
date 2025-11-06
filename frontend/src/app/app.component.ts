@@ -99,11 +99,87 @@ import { Component } from '@angular/core';
           </div>
           
           <!-- Profile View -->
-          <div *ngIf="currentView === 'profile'" class="coming-soon">
-            <div class="coming-soon-content">
-              <h2>👤 Profile</h2>
-              <p>Coming Soon!</p>
-              <div class="placeholder-icon">👤</div>
+          <div *ngIf="currentView === 'profile'" class="profile-container">
+            <div *ngIf="!showProfileForm" class="profile-cta">
+              <div class="coming-soon-content">
+                <h2>👤 Profile</h2>
+                <p>Create your profile to start matching</p>
+                <button class="btn btn-primary" (click)="openProfileForm()">Create Profile</button>
+              </div>
+            </div>
+
+            <div *ngIf="showProfileForm" class="profile-form-card">
+              <div class="coming-soon-content" style="text-align:left; max-width: 900px; margin: 0 auto;">
+                <h2 style="margin-bottom: 1rem;">Create Profile</h2>
+
+                <form (ngSubmit)="saveProfile()">
+                  <div style="display:grid; grid-template-columns: 1fr 320px; gap: 2rem; align-items: start;">
+
+                    <!-- Left column: fields -->
+                    <div>
+                      <div class="form-group">
+                        <label for="pname">Name</label>
+                        <input id="pname" [(ngModel)]="profileForm.name" name="pname" required>
+                      </div>
+
+                      <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                          <label for="page">Age</label>
+                          <input id="page" type="number" [(ngModel)]="profileForm.age" name="page" min="16" max="120" required>
+                        </div>
+                        <div class="form-group">
+                          <label for="pyear">Year</label>
+                          <select id="pyear" [(ngModel)]="profileForm.year" name="pyear" required>
+                            <option value="" disabled selected>Select year</option>
+                            <option>Freshman</option>
+                            <option>Sophomore</option>
+                            <option>Junior</option>
+                            <option>Senior</option>
+                            <option>Graduate</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div class="form-group">
+                        <label for="pmajor">Major</label>
+                        <input id="pmajor" [(ngModel)]="profileForm.major" name="pmajor" required>
+                      </div>
+
+                      <div class="form-group">
+                        <label for="pbio">Bio</label>
+                        <textarea id="pbio" rows="4" [(ngModel)]="profileForm.bio" name="pbio" placeholder="Tell others about yourself"></textarea>
+                      </div>
+
+                      <div class="form-group">
+                        <label for="pinterests">Interests (comma separated)</label>
+                        <input id="pinterests" [(ngModel)]="profileForm.interestsCsv" name="pinterests" placeholder="Hiking, Coffee, Photography">
+                        <small style="color:#666; display:block; margin-top: 0.25rem;">Tip: add at least 3 interests.</small>
+                      </div>
+                    </div>
+
+                    <!-- Right column: photo upload -->
+                    <div>
+                      <div style="background:#f8fafc; border:2px dashed #e2e8f0; border-radius:16px; padding:1rem; text-align:center;">
+                        <div style="width: 100%; aspect-ratio: 2 / 3; background:#e5e7eb; border-radius:12px; margin-bottom: 0.75rem; overflow:hidden; display:flex; align-items:center; justify-content:center;">
+                          <img *ngIf="profilePhotoDataUrl" [src]="profilePhotoDataUrl" alt="Profile preview" style="width:100%; height:100%; object-fit:cover;">
+                          <div *ngIf="!profilePhotoDataUrl" style="color:#9ca3af; font-size:3rem;">📷</div>
+                        </div>
+                        <input type="file" accept="image/*" (change)="onPhotoSelected($event)" style="display:none;" #fileInput>
+                        <div style="display:flex; gap:0.5rem; justify-content:center;">
+                          <button type="button" class="btn btn-outline" (click)="fileInput.click()">Upload Photo</button>
+                          <button type="button" class="btn btn-outline" [disabled]="!profilePhotoDataUrl" (click)="removePhoto()">Remove</button>
+                        </div>
+                        <small style="color:#666; display:block; margin-top: 0.5rem;">Recommended: portrait, 4:6 or 2:3 ratio</small>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.25rem;">
+                    <button type="button" class="btn btn-outline" (click)="cancelProfileForm()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
           
@@ -396,11 +472,31 @@ export class AppComponent {
   isAuthenticated = false;
   currentView = 'swipe';
   showRegister = false;
+  showProfileForm = false;
   
   loginForm = {
     email: '',
     password: ''
   };
+
+  profileForm: {
+    name: string;
+    age: number | null;
+    major: string;
+    year: string;
+    bio: string;
+    interestsCsv: string;
+  } = {
+    name: '',
+    age: null,
+    major: '',
+    year: '',
+    bio: '',
+    interestsCsv: ''
+  };
+
+  profilePhotoDataUrl: string | null = null;
+  private profilePhotoFile: File | null = null;
 
   login() {
     // Simple validation
@@ -422,5 +518,60 @@ export class AppComponent {
 
   setView(view: string) {
     this.currentView = view;
+  }
+
+  openProfileForm() {
+    this.showProfileForm = true;
+  }
+
+  cancelProfileForm() {
+    this.showProfileForm = false;
+  }
+
+  saveProfile() {
+    const interests = this.profileForm.interestsCsv
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    // Frontend-only persistence for now
+    console.log('Profile (frontend only):', {
+      name: this.profileForm.name,
+      age: this.profileForm.age,
+      major: this.profileForm.major,
+      year: this.profileForm.year,
+      bio: this.profileForm.bio,
+      interests,
+      photoAttached: !!this.profilePhotoDataUrl
+    });
+
+    alert('Profile saved locally (frontend only). Backend wiring comes later.');
+    this.showProfileForm = false;
+  }
+
+  onPhotoSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files && input.files[0];
+    if (!file) return;
+
+    // Basic client-side validation
+    const maxSizeMb = 5;
+    if (file.size > maxSizeMb * 1024 * 1024) {
+      alert(`Image too large. Please select a file under ${maxSizeMb}MB.`);
+      input.value = '';
+      return;
+    }
+
+    this.profilePhotoFile = file;
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.profilePhotoDataUrl = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  removePhoto() {
+    this.profilePhotoDataUrl = null;
+    this.profilePhotoFile = null;
   }
 }

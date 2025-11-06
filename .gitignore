@@ -7,6 +7,7 @@ yarn-error.log*
 # Build outputs
 dist/
 build/
+frontend/.angular/
 
 # Environment variables
 .env
@@ -21,6 +22,8 @@ build/
 *.swp
 *.swo
 jaymatch_server/target/
+jaymatch_server/test.db
+jaymatch_server/uploads/
 
 # OS generated files
 .DS_Store
