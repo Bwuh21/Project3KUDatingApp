@@ -22,6 +22,29 @@ use std::fs;
 use std::io::Write;
 use std::sync::Mutex;
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Profile {
+    user_id: i32,
+    name: Option<String>,
+    age: Option<i32>,
+    major: Option<String>,
+    year: Option<String>,
+    bio: Option<String>,
+    interests: Option<Vec<String>>,
+    profile_picture: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct ProfileUpsert {
+    name: Option<String>,
+    age: Option<i32>,
+    major: Option<String>,
+    year: Option<String>,
+    bio: Option<String>,
+    interests: Option<Vec<String>>,
+    profile_picture: Option<String>,
+}
+
 #[derive(Serialize, Deserialize)]
 struct User {
     id: Option<i32>,
@@ -139,13 +162,18 @@ async fn update_profile_picture(
 
     if let (Some(uid), Some(path)) = (user_id, file_path) {
         let conn = state.db_conn.lock().unwrap();
-        match conn.execute(
+        // Update legacy table for compatibility
+        let _ = conn.execute(
             "UPDATE new_users SET profile_picture = ?1 WHERE id = ?2",
             params![path, uid],
-        ) {
-            Ok(_) => HttpResponse::Ok().body("Profile picture updated"),
-            Err(e) => HttpResponse::InternalServerError().body(format!("Error: {}", e)),
-        }
+        );
+        // Upsert into profiles table
+        let _ = conn.execute(
+            "INSERT INTO profiles (user_id, profile_picture) VALUES (?1, ?2)
+             ON CONFLICT(user_id) DO UPDATE SET profile_picture = excluded.profile_picture",
+            params![uid, path],
+        );
+        HttpResponse::Ok().body("Profile picture updated")
     } else {
         HttpResponse::BadRequest().body("Missing user_id or image")
     }
@@ -334,6 +362,121 @@ async fn get_messages(
     HttpResponse::Ok().json(msgs)
 }
 
+fn row_to_profile(row: &rusqlite::Row) -> Profile {
+    let interests_text: Option<String> = row.get(6).ok();
+    let interests: Option<Vec<String>> = interests_text.as_ref().and_then(|txt| {
+        // Try JSON first, fallback to comma-separated
+        serde_json::from_str::<Vec<String>>(txt).ok().or_else(|| {
+            let items: Vec<String> = txt
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if items.is_empty() { None } else { Some(items) }
+        })
+    });
+    Profile {
+        user_id: row.get(0).unwrap_or(0),
+        name: row.get(1).ok(),
+        age: row.get(2).ok(),
+        major: row.get(3).ok(),
+        year: row.get(4).ok(),
+        bio: row.get(5).ok(),
+        interests,
+        profile_picture: row.get(7).ok(),
+    }
+}
+
+async fn get_profile(
+    user_id: web::Path<i32>,
+    state: web::Data<AppState>,
+) -> impl Responder {
+    let uid = user_id.into_inner();
+    let conn = state.db_conn.lock().unwrap();
+    let mut stmt = match conn.prepare(
+        "SELECT user_id, name, age, major, year, bio, interests, profile_picture
+         FROM profiles WHERE user_id = ?1",
+    ) {
+        Ok(s) => s,
+        Err(_) => return HttpResponse::InternalServerError().body("Database error"),
+    };
+    let result = stmt.query_row(params![uid], |row| Ok(row_to_profile(row)));
+    match result {
+        Ok(p) => HttpResponse::Ok().json(p),
+        Err(rusqlite::Error::QueryReturnedNoRows) => HttpResponse::NotFound().body("Profile not found"),
+        Err(_) => HttpResponse::InternalServerError().body("Database error"),
+    }
+}
+
+async fn put_profile(
+    user_id: web::Path<i32>,
+    data: web::Json<ProfileUpsert>,
+    state: web::Data<AppState>,
+) -> impl Responder {
+    let uid = user_id.into_inner();
+    let payload = data.into_inner();
+    let conn = state.db_conn.lock().unwrap();
+
+    // Read current, if exists
+    let current: Option<Profile> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT user_id, name, age, major, year, bio, interests, profile_picture
+                 FROM profiles WHERE user_id = ?1",
+            )
+            .ok();
+        match stmt {
+            Some(mut s) => s.query_row(params![uid], |row| Ok(row_to_profile(row))).ok(),
+            None => None,
+        }
+    };
+
+    let merged_name = payload.name.or_else(|| current.as_ref().and_then(|c| c.name.clone()));
+    let merged_age = payload.age.or_else(|| current.as_ref().and_then(|c| c.age));
+    let merged_major = payload.major.or_else(|| current.as_ref().and_then(|c| c.major.clone()));
+    let merged_year = payload.year.or_else(|| current.as_ref().and_then(|c| c.year.clone()));
+    let merged_bio = payload.bio.or_else(|| current.as_ref().and_then(|c| c.bio.clone()));
+    let merged_interests = payload
+        .interests
+        .or_else(|| current.as_ref().and_then(|c| c.interests.clone()));
+    let merged_picture = payload
+        .profile_picture
+        .or_else(|| current.as_ref().and_then(|c| c.profile_picture.clone()));
+
+    let interests_text = merged_interests
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "".to_string()));
+
+    // Upsert
+    let result = conn.execute(
+        "INSERT INTO profiles (user_id, name, age, major, year, bio, interests, profile_picture)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(user_id) DO UPDATE SET
+             name = excluded.name,
+             age = excluded.age,
+             major = excluded.major,
+             year = excluded.year,
+             bio = excluded.bio,
+             interests = excluded.interests,
+             profile_picture = excluded.profile_picture",
+        params![
+            uid,
+            merged_name,
+            merged_age,
+            merged_major,
+            merged_year,
+            merged_bio,
+            interests_text,
+            merged_picture
+        ],
+    );
+
+    match result {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({"success": true, "user_id": uid})),
+        Err(e) => HttpResponse::InternalServerError().body(format!("DB error: {}", e)),
+    }
+}
+
 struct MyWs {
     user_id: i32,
     state: web::Data<AppState>,
@@ -427,6 +570,20 @@ async fn main() -> std::io::Result<()> {
         params![],
     ).unwrap();
     conn.execute(
+        "CREATE TABLE IF NOT EXISTS profiles (
+            user_id INTEGER PRIMARY KEY,
+            name TEXT,
+            age INTEGER,
+            major TEXT,
+            year TEXT,
+            bio TEXT,
+            interests TEXT,
+            profile_picture TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )",
+        params![],
+    ).unwrap();
+    conn.execute(
         "CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY,
             sender_id INTEGER NOT NULL,
@@ -454,6 +611,9 @@ async fn main() -> std::io::Result<()> {
                 "/users/{user_id}/profile-picture",
                 web::get().to(get_profile_picture),
             )
+            // profiles endpoints
+            .route("/profiles/{user_id}", web::get().to(get_profile))
+            .route("/profiles/{user_id}", web::put().to(put_profile))
             // messaging routes
             .route("/messages", web::post().to(post_message))
             .route("/messages/{a}/{b}", web::get().to(get_messages))
