@@ -1,4 +1,5 @@
 import { Component } from '@angular/core';
+import { ProfileService, ProfileUpsertDto } from './services/profile.service';
 
 @Component({
   selector: 'app-root',
@@ -469,6 +470,8 @@ export class AppComponent {
   currentView = 'swipe';
   showRegister = false;
   showProfileForm = false;
+  // Temporary user id for demo; later wire this to real login user id
+  userId = 1;
   
   loginForm = {
     email: '',
@@ -494,6 +497,8 @@ export class AppComponent {
   profilePhotoDataUrl: string | null = null;
   private profilePhotoFile: File | null = null;
 
+  constructor(private profiles: ProfileService) {}
+
   login() {
     // Simple validation
     if (this.loginForm.email && this.loginForm.password) {
@@ -518,6 +523,26 @@ export class AppComponent {
 
   openProfileForm() {
     this.showProfileForm = true;
+    // Attempt to load existing profile and prefill
+    this.profiles.getProfile(this.userId).subscribe({
+      next: (p) => {
+        if (p.name) this.profileForm.name = p.name;
+        if (typeof p.age === 'number') this.profileForm.age = p.age;
+        if (p.major) this.profileForm.major = p.major;
+        if (p.year) this.profileForm.year = p.year;
+        if (p.bio) this.profileForm.bio = p.bio;
+        if (p.interests && Array.isArray(p.interests)) {
+          this.profileForm.interestsCsv = p.interests.join(', ');
+        }
+        // Use served URL for preview if picture exists
+        if (p.profile_picture) {
+          this.profilePhotoDataUrl = this.profiles.profilePictureUrl(this.userId);
+        }
+      },
+      error: () => {
+        // If no profile yet, keep defaults; nothing else to do
+      }
+    });
   }
 
   cancelProfileForm() {
@@ -530,19 +555,40 @@ export class AppComponent {
       .map(s => s.trim())
       .filter(Boolean);
 
-    // Frontend-only persistence for now
-    console.log('Profile (frontend only):', {
-      name: this.profileForm.name,
-      age: this.profileForm.age,
-      major: this.profileForm.major,
-      year: this.profileForm.year,
-      bio: this.profileForm.bio,
-      interests,
-      photoAttached: !!this.profilePhotoDataUrl
-    });
+    const payload: ProfileUpsertDto = {
+      name: this.profileForm.name || null,
+      age: this.profileForm.age ?? null,
+      major: this.profileForm.major || null,
+      year: this.profileForm.year || null,
+      bio: this.profileForm.bio || null,
+      interests: interests.length ? interests : null
+    };
 
-    alert('Profile saved locally (frontend only). Backend wiring comes later.');
-    this.showProfileForm = false;
+    const afterUploadAndSave = () => {
+      this.profiles.upsertProfile(this.userId, payload).subscribe({
+        next: () => {
+          alert('Profile saved successfully.');
+          this.showProfileForm = false;
+        },
+        error: () => {
+          alert('Failed to save profile. Please try again.');
+        }
+      });
+    };
+
+    // If a new photo file is selected, upload it first
+    if (this.profilePhotoFile) {
+      this.profiles.uploadProfilePicture(this.userId, this.profilePhotoFile).subscribe({
+        next: () => afterUploadAndSave(),
+        error: () => {
+          alert('Failed to upload profile picture.');
+          // proceed to save textual fields anyway
+          afterUploadAndSave();
+        }
+      });
+    } else {
+      afterUploadAndSave();
+    }
   }
 
   onPhotoSelected(event: Event) {
