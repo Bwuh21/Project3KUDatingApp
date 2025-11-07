@@ -90,12 +90,8 @@ import { Component } from '@angular/core';
           </div>
           
           <!-- Chat View -->
-          <div *ngIf="currentView === 'chat'" class="coming-soon">
-            <div class="coming-soon-content">
-              <h2>💬 Chat</h2>
-              <p>Coming Soon!</p>
-              <div class="placeholder-icon">💬</div>
-            </div>
+          <div *ngIf="currentView === 'chat'" class="chat-container" style="padding: 2rem;">
+            <app-chat-window></app-chat-window>
           </div>
           
           <!-- Profile View -->
