@@ -121,6 +121,18 @@ import { AuthService } from './services/auth.service';
                   >
                 </div>
 
+                <div class="form-group">
+                  <label for="rpassword2">Confirm Password</label>
+                  <input 
+                    type="password" 
+                    id="rpassword2" 
+                    [(ngModel)]="registerFormConfirm" 
+                    name="rpassword2"
+                    placeholder="Repeat your password"
+                    required
+                  >
+                </div>
+
                 <button type="submit" class="btn btn-primary btn-full">
                   Create account
                 </button>
@@ -551,6 +563,7 @@ export class AppComponent {
     email: '',
     password: ''
   };
+  registerFormConfirm = '';
 
   constructor(private profiles: ProfileService, private auth: AuthService) {}
 
@@ -572,6 +585,10 @@ export class AppComponent {
       alert('Please complete all fields.');
       return;
     }
+    if (this.registerForm.password !== this.registerFormConfirm) {
+      alert('Passwords do not match. Please re-enter them.');
+      return;
+    }
     this.auth.register({
       name: this.registerForm.name.trim(),
       email,
@@ -588,7 +605,7 @@ export class AppComponent {
         }
       },
       error: (err) => {
-        const msg = err?.error?.message || 'Registration failed.';
+        const msg = (err && (err.error?.message || err.message)) || 'Registration failed.';
         alert(msg);
       }
     });
