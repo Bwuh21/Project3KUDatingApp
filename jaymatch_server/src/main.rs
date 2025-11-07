@@ -108,14 +108,42 @@ async fn create_user(data: web::Json<User>, state: web::Data<AppState>) -> impl 
 }
 
 async fn create_new_user(data: web::Json<NewUser>, state: web::Data<AppState>) -> impl Responder {
+    // Enforce KU email domain
+    let email_ok = data.email.to_lowercase().ends_with("@ku.edu");
+    if !email_ok {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "success": false,
+            "message": "Email must be a ku.edu address"
+        }));
+    }
+
     let conn = state.db_conn.lock().unwrap();
-    match conn.execute(
+
+    // Insert into users for login purposes
+    let res_users = conn.execute(
+        "INSERT INTO users (name, password) VALUES (?1, ?2)",
+        params![data.name, data.password],
+    );
+    if let Err(e) = res_users {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "message": format!("Error creating user: {}", e)
+        }));
+    }
+
+    let user_id = conn.last_insert_rowid();
+
+    // Also store extended info in new_users (legacy table with email)
+    let _ = conn.execute(
         "INSERT INTO new_users (name, password, email) VALUES (?1, ?2, ?3)",
         params![data.name, data.password, data.email],
-    ) {
-        Ok(_) => HttpResponse::Ok().body("New user created"),
-        Err(e) => HttpResponse::InternalServerError().body(format!("Error: {}", e)),
-    }
+    );
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "New user created",
+        "user_id": user_id
+    }))
 }
 
 async fn update_profile_picture(

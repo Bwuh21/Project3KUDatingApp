@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { ProfileService, ProfileUpsertDto } from './services/profile.service';
+import { AuthService } from './services/auth.service';
 
 @Component({
   selector: 'app-root',
@@ -30,7 +31,7 @@ import { ProfileService, ProfileUpsertDto } from './services/profile.service';
 
       <!-- Main Content -->
       <main class="main-content" [class.no-nav]="!isAuthenticated">
-        <!-- Login Page -->
+        <!-- Login / Signup Page -->
         <div *ngIf="!isAuthenticated" class="login-container">
           <div class="login-card">
             <div class="login-header">
@@ -39,47 +40,95 @@ import { ProfileService, ProfileUpsertDto } from './services/profile.service';
               <span class="ku-badge">Rock Chalk! 🐦</span>
             </div>
             
-            <form class="login-form" (ngSubmit)="login()">
-              <div class="form-group">
-                <label for="email">Email</label>
-                <input 
-                  type="email" 
-                  id="email" 
-                  [(ngModel)]="loginForm.email" 
-                  name="email"
-                  placeholder="your.email@ku.edu"
-                  required
-                >
+            <ng-container *ngIf="!showRegister; else signupTpl">
+              <form class="login-form" (ngSubmit)="login()">
+                <div class="form-group">
+                  <label for="email">Email</label>
+                  <input 
+                    type="email" 
+                    id="email" 
+                    [(ngModel)]="loginForm.email" 
+                    name="email"
+                    placeholder="your.email@ku.edu"
+                    required
+                  >
+                </div>
+                
+                <div class="form-group">
+                  <label for="password">Password</label>
+                  <input 
+                    type="password" 
+                    id="password" 
+                    [(ngModel)]="loginForm.password" 
+                    name="password"
+                    placeholder="Enter your password"
+                    required
+                  >
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-full">
+                  Login
+                </button>
+              </form>
+              
+              <div class="login-divider">
+                <span>or</span>
               </div>
               
-              <div class="form-group">
-                <label for="password">Password</label>
-                <input 
-                  type="password" 
-                  id="password" 
-                  [(ngModel)]="loginForm.password" 
-                  name="password"
-                  placeholder="Enter your password"
-                  required
-                >
-              </div>
-              
-              <button type="submit" class="btn btn-primary btn-full">
-                Login
+              <button class="btn btn-bypass" (click)="bypassLogin()">
+                🚀 Bypass Login (Demo)
               </button>
-            </form>
-            
-            <div class="login-divider">
-              <span>or</span>
-            </div>
-            
-            <button class="btn btn-bypass" (click)="bypassLogin()">
-              🚀 Bypass Login (Demo)
-            </button>
-            
-            <p class="login-footer">
-              Don't have an account? <a href="#" (click)="showRegister = true; $event.preventDefault()">Sign up</a>
-            </p>
+              
+              <p class="login-footer">
+                Don't have an account? <a href="#" (click)="showRegister = true; $event.preventDefault()">Sign up</a>
+              </p>
+            </ng-container>
+
+            <ng-template #signupTpl>
+              <form class="login-form" (ngSubmit)="register()">
+                <div class="form-group">
+                  <label for="rname">Name</label>
+                  <input 
+                    id="rname"
+                    [(ngModel)]="registerForm.name"
+                    name="rname"
+                    placeholder="Your full name"
+                    required
+                  >
+                </div>
+
+                <div class="form-group">
+                  <label for="remail">KU Email</label>
+                  <input 
+                    type="email" 
+                    id="remail" 
+                    [(ngModel)]="registerForm.email" 
+                    name="remail"
+                    placeholder="your.email@ku.edu"
+                    required
+                  >
+                </div>
+                
+                <div class="form-group">
+                  <label for="rpassword">Password</label>
+                  <input 
+                    type="password" 
+                    id="rpassword" 
+                    [(ngModel)]="registerForm.password" 
+                    name="rpassword"
+                    placeholder="Create a password"
+                    required
+                  >
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full">
+                  Create account
+                </button>
+              </form>
+              <p class="login-footer">
+                Already have an account? <a href="#" (click)="showRegister = false; $event.preventDefault()">Back to login</a>
+              </p>
+            </ng-template>
           </div>
         </div>
 
@@ -497,7 +546,13 @@ export class AppComponent {
   profilePhotoDataUrl: string | null = null;
   private profilePhotoFile: File | null = null;
 
-  constructor(private profiles: ProfileService) {}
+  registerForm = {
+    name: '',
+    email: '',
+    password: ''
+  };
+
+  constructor(private profiles: ProfileService, private auth: AuthService) {}
 
   login() {
     // Simple validation
@@ -505,6 +560,38 @@ export class AppComponent {
       this.isAuthenticated = true;
       this.currentView = 'swipe';
     }
+  }
+
+  register() {
+    const email = (this.registerForm.email || '').toLowerCase().trim();
+    if (!email.endsWith('@ku.edu')) {
+      alert('Please use a valid KU email address (must end with @ku.edu).');
+      return;
+    }
+    if (!this.registerForm.name || !this.registerForm.password) {
+      alert('Please complete all fields.');
+      return;
+    }
+    this.auth.register({
+      name: this.registerForm.name.trim(),
+      email,
+      password: this.registerForm.password
+    }).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.userId = Number(res.user_id || 1);
+          this.isAuthenticated = true;
+          this.currentView = 'profile';
+          this.showRegister = false;
+        } else {
+          alert(res.message || 'Registration failed.');
+        }
+      },
+      error: (err) => {
+        const msg = err?.error?.message || 'Registration failed.';
+        alert(msg);
+      }
+    });
   }
 
   bypassLogin() {
