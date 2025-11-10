@@ -21,9 +21,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::sync::Mutex;
-use actix_cors::Cors;
-use actix_web::http;
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Profile {
@@ -629,29 +626,29 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(state.clone())
-            .wrap(
-                Cors::default()
-                    .allowed_origin("http://localhost:4200") // Angular dev server
-                    .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
-                    .allowed_headers(vec![
-                        http::header::CONTENT_TYPE,
-                        http::header::AUTHORIZATION
-                    ])
-                    .supports_credentials()
-            )
             .route("/", web::get().to(index))
             .route("/health", web::get().to(health))
             .route("/users", web::post().to(create_user))
             .route("/users/new", web::post().to(create_new_user))
-            .route("/users/profile-picture", web::post().to(update_profile_picture))
+            .route(
+                "/users/profile-picture",
+                web::post().to(update_profile_picture),
+            )
             .route("/login", web::post().to(login))
-            .route("/users/{user_id}/profile-picture", web::get().to(get_profile_picture))
+            .route(
+                "/users/{user_id}/profile-picture",
+                web::get().to(get_profile_picture),
+            )
+            // profiles endpoints
             .route("/profiles/{user_id}", web::get().to(get_profile))
             .route("/profiles/{user_id}", web::put().to(put_profile))
+            // messaging routes
             .route("/messages", web::post().to(post_message))
             .route("/messages/{a}/{b}", web::get().to(get_messages))
+            // websocket
             .route("/ws/{user_id}", web::get().to(ws_index))
     })
     .bind(("127.0.0.1", 8080))?
     .run()
     .await
+}
