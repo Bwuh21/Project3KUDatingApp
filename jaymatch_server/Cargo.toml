@@ -5,10 +5,12 @@ edition = "2024"
 
 [dependencies]
 actix = "0.13.5"
+actix-cors = "0.7.1"
 actix-multipart = "0.7.2"
 actix-web = "4.11.0"
 actix-web-actors = "4.3.1"
 chrono = "0.4.42"
+env_logger = "0.11.8"
 futures-util = "0.3.31"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = "1.0.228"

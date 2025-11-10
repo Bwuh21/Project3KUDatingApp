@@ -10,10 +10,13 @@ Errors: Web errors for bad connection, port errors for firewall, possible errors
 */
 
 use actix::prelude::*;
+use actix_cors::Cors;
 use actix_multipart::Multipart;
+use actix_web::middleware::Logger;
 use actix_web::{App, Error, HttpRequest, HttpResponse, HttpServer, Responder, web};
 use actix_web_actors::ws;
 use chrono::Utc;
+use env_logger::Env;
 use futures_util::stream::StreamExt;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
@@ -97,16 +100,6 @@ async fn health() -> impl Responder {
     HttpResponse::Ok().body("Backend active")
 }
 
-async fn create_user(data: web::Json<User>, state: web::Data<AppState>) -> impl Responder {
-    let conn = state.db_conn.lock().unwrap();
-    conn.execute(
-        "INSERT INTO users (name, password) VALUES (?1, ?2)",
-        params![data.name, data.password],
-    )
-    .unwrap();
-    HttpResponse::Ok().body("User created")
-}
-
 async fn create_new_user(data: web::Json<NewUser>, state: web::Data<AppState>) -> impl Responder {
     // Enforce KU email domain
     let email_ok = data.email.to_lowercase().ends_with("@ku.edu");
@@ -116,9 +109,7 @@ async fn create_new_user(data: web::Json<NewUser>, state: web::Data<AppState>) -
             "message": "Email must be a ku.edu address"
         }));
     }
-
     let conn = state.db_conn.lock().unwrap();
-
     // Insert into users for login purposes
     let res_users = conn.execute(
         "INSERT INTO users (name, password) VALUES (?1, ?2)",
@@ -130,15 +121,16 @@ async fn create_new_user(data: web::Json<NewUser>, state: web::Data<AppState>) -
             "message": format!("Error creating user: {}", e)
         }));
     }
-
     let user_id = conn.last_insert_rowid();
-
     // Also store extended info in new_users (legacy table with email)
     let _ = conn.execute(
         "INSERT INTO new_users (name, password, email) VALUES (?1, ?2, ?3)",
         params![data.name, data.password, data.email],
     );
-
+    println!(
+        "Created new user with name {} passwprd {} email {}",
+        data.name, data.password, data.email
+    );
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "message": "New user created",
@@ -210,7 +202,7 @@ async fn update_profile_picture(
 async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let mut stmt = conn
-        .prepare("SELECT id, name, password FROM users WHERE name = ?1")
+        .prepare("SELECT id, name, password FROM new_users WHERE email = ?1")
         .unwrap();
     let user_result = stmt.query_row(params![data.name], |row| {
         Ok(User {
@@ -222,22 +214,33 @@ async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Respon
     match user_result {
         Ok(user) => {
             if user.password == data.password {
+                println!(
+                    "User {} logged in successfully with email {}",
+                    user.name, data.name
+                );
                 HttpResponse::Ok().json(serde_json::json!({
                     "success": true,
                     "message": "Login successful",
                     "user_id": user.id
                 }))
             } else {
+                println!(
+                    "Failed login attempt for email {} with password {}",
+                    data.name, data.password
+                );
                 HttpResponse::Unauthorized().json(serde_json::json!({
                     "success": false,
                     "message": "Invalid password"
                 }))
             }
         }
-        Err(_) => HttpResponse::Unauthorized().json(serde_json::json!({
-            "success": false,
-            "message": "User not found"
-        })),
+        Err(_) => {
+            println!("Login attempt for non-existent email {}", data.name);
+            HttpResponse::Unauthorized().json(serde_json::json!({
+                "success": false,
+                "message": "User not found"
+            }))
+        }
     }
 }
 
@@ -415,10 +418,7 @@ fn row_to_profile(row: &rusqlite::Row) -> Profile {
     }
 }
 
-async fn get_profile(
-    user_id: web::Path<i32>,
-    state: web::Data<AppState>,
-) -> impl Responder {
+async fn get_profile(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
     let mut stmt = match conn.prepare(
@@ -431,7 +431,9 @@ async fn get_profile(
     let result = stmt.query_row(params![uid], |row| Ok(row_to_profile(row)));
     match result {
         Ok(p) => HttpResponse::Ok().json(p),
-        Err(rusqlite::Error::QueryReturnedNoRows) => HttpResponse::NotFound().body("Profile not found"),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            HttpResponse::NotFound().body("Profile not found")
+        }
         Err(_) => HttpResponse::InternalServerError().body("Database error"),
     }
 }
@@ -444,26 +446,33 @@ async fn put_profile(
     let uid = user_id.into_inner();
     let payload = data.into_inner();
     let conn = state.db_conn.lock().unwrap();
-
-    // Read current, if exists
     let current: Option<Profile> = {
-        let mut stmt = conn
+        let stmt = conn
             .prepare(
                 "SELECT user_id, name, age, major, year, bio, interests, profile_picture
                  FROM profiles WHERE user_id = ?1",
             )
             .ok();
         match stmt {
-            Some(mut s) => s.query_row(params![uid], |row| Ok(row_to_profile(row))).ok(),
+            Some(mut s) => s
+                .query_row(params![uid], |row| Ok(row_to_profile(row)))
+                .ok(),
             None => None,
         }
     };
-
-    let merged_name = payload.name.or_else(|| current.as_ref().and_then(|c| c.name.clone()));
+    let merged_name = payload
+        .name
+        .or_else(|| current.as_ref().and_then(|c| c.name.clone()));
     let merged_age = payload.age.or_else(|| current.as_ref().and_then(|c| c.age));
-    let merged_major = payload.major.or_else(|| current.as_ref().and_then(|c| c.major.clone()));
-    let merged_year = payload.year.or_else(|| current.as_ref().and_then(|c| c.year.clone()));
-    let merged_bio = payload.bio.or_else(|| current.as_ref().and_then(|c| c.bio.clone()));
+    let merged_major = payload
+        .major
+        .or_else(|| current.as_ref().and_then(|c| c.major.clone()));
+    let merged_year = payload
+        .year
+        .or_else(|| current.as_ref().and_then(|c| c.year.clone()));
+    let merged_bio = payload
+        .bio
+        .or_else(|| current.as_ref().and_then(|c| c.bio.clone()));
     let merged_interests = payload
         .interests
         .or_else(|| current.as_ref().and_then(|c| c.interests.clone()));
@@ -584,6 +593,7 @@ async fn ws_index(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::init_from_env(Env::default().default_filter_or("info"));
     let conn = Connection::open("test.db").unwrap();
     conn.execute(
         "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL)",
@@ -610,7 +620,8 @@ async fn main() -> std::io::Result<()> {
             FOREIGN KEY(user_id) REFERENCES users(id)
         )",
         params![],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY,
@@ -625,10 +636,21 @@ async fn main() -> std::io::Result<()> {
     let state = web::Data::new(AppState::new(conn));
     HttpServer::new(move || {
         App::new()
+            .wrap(Logger::default())
+            .wrap(
+                Cors::default()
+                    .allow_any_origin()
+                    .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
+                    .allowed_headers(vec![
+                        actix_web::http::header::AUTHORIZATION,
+                        actix_web::http::header::ACCEPT,
+                        actix_web::http::header::CONTENT_TYPE,
+                    ])
+                    .max_age(3600),
+            )
             .app_data(state.clone())
             .route("/", web::get().to(index))
             .route("/health", web::get().to(health))
-            .route("/users", web::post().to(create_user))
             .route("/users/new", web::post().to(create_new_user))
             .route(
                 "/users/profile-picture",

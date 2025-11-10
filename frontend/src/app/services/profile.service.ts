@@ -25,9 +25,9 @@ export interface ProfileUpsertDto {
 
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
-  private readonly base = 'http://127.0.0.1:8080';
+  private readonly base = 'https://api.jaymatch.cc';
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient) { }
 
   getProfile(userId: number): Observable<ProfileDto> {
     return this.http.get<ProfileDto>(`${this.base}/profiles/${userId}`);

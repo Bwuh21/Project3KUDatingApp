@@ -18,7 +18,7 @@ interface WsEnvelope {
 
 @Injectable({ providedIn: 'root' })
 export class ChatService {
-  private readonly httpBase = 'http://127.0.0.1:8080';
+  private readonly httpBase = 'https://api.jaymatch.cc';
   private websocket: WebSocket | null = null;
   private isConnected$ = new BehaviorSubject<boolean>(false);
   private incoming$ = new Subject<ChatMessage>();
@@ -33,7 +33,7 @@ export class ChatService {
     }
     this.disconnect();
     this.meId = userId;
-    const wsUrl = `ws://127.0.0.1:8080/ws/${userId}`;
+    const wsUrl = `ws://https://api.jaymatch.cc//ws/${userId}`;
     const ws = new WebSocket(wsUrl);
     this.websocket = ws;
 

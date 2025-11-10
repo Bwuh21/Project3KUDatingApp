@@ -1,4 +1,5 @@
 import { Component, OnDestroy, OnInit, ViewChild, ElementRef } from '@angular/core';
+import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ChatMessage, ChatService } from '../../services/chat.service';
 
@@ -6,7 +7,6 @@ import { ChatMessage, ChatService } from '../../services/chat.service';
   selector: 'app-chat-window',
   template: `
     <div class="chat-layout">
-      <!-- Sidebar: contacts -->
       <aside class="sidebar">
         <div class="sidebar-header">
           <div class="left">
@@ -32,7 +32,6 @@ import { ChatMessage, ChatService } from '../../services/chat.service';
         </div>
       </aside>
 
-      <!-- Conversation panel -->
       <section class="conversation">
         <div class="chat-shell">
           <div class="chat-header">
@@ -228,7 +227,7 @@ import { ChatMessage, ChatService } from '../../services/chat.service';
 })
 export class ChatWindowComponent implements OnInit, OnDestroy {
   @ViewChild('scrollContainer') scrollContainer!: ElementRef<HTMLDivElement>;
-  meId = 1;
+  meId: number = 0;
   peerId: number | null = null;
   connected = false;
   messages: ChatMessage[] = [];
@@ -245,14 +244,20 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
   ];
   lastMessage: { [id: number]: { content: string; timestamp: number } } = {};
 
-  constructor(private chat: ChatService) {}
+  constructor(private chat: ChatService, private router: Router) { }
 
   ngOnInit(): void {
+    const storedUserId = localStorage.getItem('user_id');
+    if (!storedUserId) {
+      this.router.navigate(['/login']);
+      return;
+    }
+    this.meId = parseInt(storedUserId, 10);
+
     this.chat.connect(this.meId);
     this.subs.push(
       this.chat.isConnected().subscribe(v => this.connected = v),
       this.chat.incomingMessages().subscribe(m => {
-        // Update previews and active conversation
         const otherId = m.sender_id === this.meId ? m.receiver_id : m.sender_id;
         if (this.contacts.some(c => c.id === otherId)) {
           this.lastMessage[otherId] = { content: m.content, timestamp: m.timestamp };
@@ -263,7 +268,6 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
         }
       })
     );
-    // Default to first contact
     if (this.contacts.length) {
       this.selectPeer(this.contacts[0].id);
     }
@@ -316,7 +320,6 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     const sender = this.meId;
     const receiver = this.peerId;
     this.chat.sendText(sender, receiver, content).subscribe(res => {
-      // optimistic UI: show immediately with returned timestamp
       const ts = res?.timestamp ?? Date.now();
       this.messages.push({
         sender_id: sender,
@@ -338,7 +341,7 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
   shortTime(ts: number): string {
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
+  }
 
   private scrollToBottomSoon(): void {
     setTimeout(() => {
@@ -348,5 +351,3 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     }, 0);
   }
 }
-
-

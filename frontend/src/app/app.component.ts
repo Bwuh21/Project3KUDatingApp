@@ -6,7 +6,6 @@ import { AuthService } from './services/auth.service';
   selector: 'app-root',
   template: `
     <div class="app-container">
-      <!-- Navigation Header - Only show when authenticated -->
       <nav class="navbar" *ngIf="isAuthenticated">
         <div class="nav-brand">
           <h1>❤️ JayMatch</h1>
@@ -29,9 +28,7 @@ import { AuthService } from './services/auth.service';
         </div>
       </nav>
 
-      <!-- Main Content -->
       <main class="main-content" [class.no-nav]="!isAuthenticated">
-        <!-- Login / Signup Page -->
         <div *ngIf="!isAuthenticated" class="login-container">
           <div class="login-card">
             <div class="login-header">
@@ -43,13 +40,13 @@ import { AuthService } from './services/auth.service';
             <ng-container *ngIf="!showRegister; else signupTpl">
               <form class="login-form" (ngSubmit)="login()">
                 <div class="form-group">
-                  <label for="email">Email</label>
+                  <label for="username">Email</label>
                   <input 
-                    type="email" 
-                    id="email" 
-                    [(ngModel)]="loginForm.email" 
-                    name="email"
-                    placeholder="your.email@ku.edu"
+                    type="text" 
+                    id="username" 
+                    [(ngModel)]="loginForm.username" 
+                    name="username"
+                    placeholder="Your email"
                     required
                   >
                 </div>
@@ -70,14 +67,6 @@ import { AuthService } from './services/auth.service';
                   Login
                 </button>
               </form>
-              
-              <div class="login-divider">
-                <span>or</span>
-              </div>
-              
-              <button class="btn btn-bypass" (click)="bypassLogin()">
-                🚀 Bypass Login (Demo)
-              </button>
               
               <p class="login-footer">
                 Don't have an account? <a href="#" (click)="showRegister = true; $event.preventDefault()">Sign up</a>
@@ -144,19 +133,15 @@ import { AuthService } from './services/auth.service';
           </div>
         </div>
 
-        <!-- Main App Views -->
         <div *ngIf="isAuthenticated">
-          <!-- Swipe View -->
           <div *ngIf="currentView === 'swipe'" class="swipe-container">
             <app-swipe-interface></app-swipe-interface>
           </div>
           
-          <!-- Chat View -->
           <div *ngIf="currentView === 'chat'" class="chat-container" style="padding: 2rem;">
             <app-chat-window></app-chat-window>
           </div>
           
-          <!-- Profile View -->
           <div *ngIf="currentView === 'profile'" class="profile-container">
             <div *ngIf="!showProfileForm" class="profile-cta">
               <div class="coming-soon-content">
@@ -173,7 +158,6 @@ import { AuthService } from './services/auth.service';
                 <form (ngSubmit)="saveProfile()">
                   <div style="display:grid; grid-template-columns: 1fr 320px; gap: 2rem; align-items: start;">
 
-                    <!-- Left column: fields -->
                     <div>
                       <div class="form-group">
                         <label for="pname">Name</label>
@@ -215,7 +199,6 @@ import { AuthService } from './services/auth.service';
                       </div>
                     </div>
 
-                    <!-- Right column: photo upload -->
                     <div>
                       <div style="background:#f8fafc; border:2px dashed #e2e8f0; border-radius:16px; padding:1rem; text-align:center;">
                         <div style="width: 100%; aspect-ratio: 2 / 3; background:#e5e7eb; border-radius:12px; margin-bottom: 0.75rem; overflow:hidden; display:flex; align-items:center; justify-content:center;">
@@ -241,7 +224,6 @@ import { AuthService } from './services/auth.service';
             </div>
           </div>
           
-          <!-- Backend Integration Area -->
           <div *ngIf="currentView === 'backend'" class="backend-area">
             <app-backend-integration></app-backend-integration>
           </div>
@@ -372,7 +354,7 @@ import { AuthService } from './services/auth.service';
       font-weight: 500;
     }
 
-    .form-group input {
+    .form-group input, .form-group select, .form-group textarea {
       width: 100%;
       padding: 12px 16px;
       border: 2px solid #e1e5e9;
@@ -382,7 +364,7 @@ import { AuthService } from './services/auth.service';
       box-sizing: border-box;
     }
 
-    .form-group input:focus {
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
       outline: none;
       border-color: #8b5cf6;
     }
@@ -420,42 +402,8 @@ import { AuthService } from './services/auth.service';
       color: white;
     }
 
-    .btn-bypass {
-      background: linear-gradient(135deg, #f59e0b, #f97316);
-      color: white;
-      width: 100%;
-    }
-
-    .btn-bypass:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 20px rgba(245, 158, 11, 0.3);
-    }
-
     .btn-full {
       width: 100%;
-    }
-
-    .login-divider {
-      margin: 1.5rem 0;
-      position: relative;
-      text-align: center;
-    }
-
-    .login-divider span {
-      background: white;
-      padding: 0 1rem;
-      color: #999;
-    }
-
-    .login-divider::before {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 0;
-      right: 0;
-      height: 1px;
-      background: #e1e5e9;
-      z-index: -1;
     }
 
     .login-footer {
@@ -497,11 +445,6 @@ import { AuthService } from './services/auth.service';
       margin: 0 0 2rem 0;
     }
 
-    .placeholder-icon {
-      font-size: 4rem;
-      opacity: 0.5;
-    }
-
     .swipe-container {
       padding: 2rem;
       min-height: 60vh;
@@ -531,11 +474,10 @@ export class AppComponent {
   currentView = 'swipe';
   showRegister = false;
   showProfileForm = false;
-  // Temporary user id for demo; later wire this to real login user id
-  userId = 1;
-  
+  userId = 0;
+
   loginForm = {
-    email: '',
+    username: '',
     password: ''
   };
 
@@ -547,13 +489,13 @@ export class AppComponent {
     bio: string;
     interestsCsv: string;
   } = {
-    name: '',
-    age: null,
-    major: '',
-    year: '',
-    bio: '',
-    interestsCsv: ''
-  };
+      name: '',
+      age: null,
+      major: '',
+      year: '',
+      bio: '',
+      interestsCsv: ''
+    };
 
   profilePhotoDataUrl: string | null = null;
   private profilePhotoFile: File | null = null;
@@ -565,14 +507,33 @@ export class AppComponent {
   };
   registerFormConfirm = '';
 
-  constructor(private profiles: ProfileService, private auth: AuthService) {}
+  constructor(private profiles: ProfileService, private auth: AuthService) { }
 
   login() {
-    // Simple validation
-    if (this.loginForm.email && this.loginForm.password) {
-      this.isAuthenticated = true;
-      this.currentView = 'swipe';
+    if (!this.loginForm.username || !this.loginForm.password) {
+      alert('Please enter username and password');
+      return;
     }
+
+    this.auth.login({
+      name: this.loginForm.username,
+      password: this.loginForm.password
+    }).subscribe({
+      next: (response) => {
+        if (response.success && response.user_id) {
+          this.userId = response.user_id;
+          localStorage.setItem('user_id', this.userId.toString());
+          this.isAuthenticated = true;
+          this.currentView = 'swipe';
+        } else {
+          alert(response.message || 'Login failed');
+        }
+      },
+      error: (err) => {
+        const msg = err?.error?.message || 'Login failed';
+        alert(msg);
+      }
+    });
   }
 
   register() {
@@ -596,7 +557,8 @@ export class AppComponent {
     }).subscribe({
       next: (res) => {
         if (res.success) {
-          this.userId = Number(res.user_id || 1);
+          this.userId = Number(res.user_id || 0);
+          localStorage.setItem('user_id', this.userId.toString());
           this.isAuthenticated = true;
           this.currentView = 'profile';
           this.showRegister = false;
@@ -611,14 +573,11 @@ export class AppComponent {
     });
   }
 
-  bypassLogin() {
-    this.isAuthenticated = true;
-    this.currentView = 'swipe';
-  }
-
   logout() {
     this.isAuthenticated = false;
-    this.loginForm = { email: '', password: '' };
+    this.userId = 0;
+    localStorage.removeItem('user_id');
+    this.loginForm = { username: '', password: '' };
   }
 
   setView(view: string) {
@@ -627,7 +586,6 @@ export class AppComponent {
 
   openProfileForm() {
     this.showProfileForm = true;
-    // Attempt to load existing profile and prefill
     this.profiles.getProfile(this.userId).subscribe({
       next: (p) => {
         if (p.name) this.profileForm.name = p.name;
@@ -638,14 +596,11 @@ export class AppComponent {
         if (p.interests && Array.isArray(p.interests)) {
           this.profileForm.interestsCsv = p.interests.join(', ');
         }
-        // Use served URL for preview if picture exists
         if (p.profile_picture) {
           this.profilePhotoDataUrl = this.profiles.profilePictureUrl(this.userId);
         }
       },
-      error: () => {
-        // If no profile yet, keep defaults; nothing else to do
-      }
+      error: () => { }
     });
   }
 
@@ -680,13 +635,11 @@ export class AppComponent {
       });
     };
 
-    // If a new photo file is selected, upload it first
     if (this.profilePhotoFile) {
       this.profiles.uploadProfilePicture(this.userId, this.profilePhotoFile).subscribe({
         next: () => afterUploadAndSave(),
         error: () => {
           alert('Failed to upload profile picture.');
-          // proceed to save textual fields anyway
           afterUploadAndSave();
         }
       });
@@ -700,7 +653,6 @@ export class AppComponent {
     const file = input.files && input.files[0];
     if (!file) return;
 
-    // Basic client-side validation
     const maxSizeMb = 5;
     if (file.size > maxSizeMb * 1024 * 1024) {
       alert(`Image too large. Please select a file under ${maxSizeMb}MB.`);

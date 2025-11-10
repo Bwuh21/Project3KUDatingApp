@@ -27,7 +27,7 @@ export interface LoginResponse {
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
-  private readonly base = 'http://127.0.0.1:8080';
+  private readonly base = 'https://api.jaymatch.cc';
 
   constructor(private http: HttpClient) {}
 
