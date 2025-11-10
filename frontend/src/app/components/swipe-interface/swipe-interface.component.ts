@@ -1,4 +1,5 @@
 import { Component, OnInit } from '@angular/core';
+import { ProfileService, ProfileDto } from '../../services/profile.service';
 
 interface Profile {
   id: number;
@@ -79,13 +80,20 @@ interface Profile {
         </div>
       </div>
 
+      <!-- Loading -->
+      <div class="no-profiles" *ngIf="isLoading">
+        <div class="no-profiles-content">
+          <h3>🔄 Loading profiles...</h3>
+        </div>
+      </div>
+
       <!-- No More Profiles -->
-      <div class="no-profiles" *ngIf="!currentProfile">
+      <div class="no-profiles" *ngIf="!currentProfile && !isLoading">
         <div class="no-profiles-content">
           <h3>🎉 That's all for now!</h3>
           <p>Check back later for more KU students</p>
-          <button class="btn btn-primary" (click)="resetProfiles()">
-            Start Over
+          <button class="btn btn-primary" (click)="loadQueue()">
+            Reload
           </button>
         </div>
       </div>
@@ -373,7 +381,8 @@ export class SwipeInterfaceComponent implements OnInit {
   currentProfile: Profile | null = null;
   likedProfiles: Profile[] = [];
   passedProfiles: Profile[] = [];
-  
+  isLoading = false;
+
   // Touch/Mouse handling
   isDragging = false;
   startX = 0;
@@ -384,74 +393,47 @@ export class SwipeInterfaceComponent implements OnInit {
   cardOpacity = 1;
   swipeDirection = '';
 
+  constructor(private profileService: ProfileService) { }
+
   ngOnInit() {
-    this.loadFakeProfiles();
-    this.currentProfile = this.profiles[0] || null;
+    this.loadQueue();
   }
 
-  loadFakeProfiles() {
-    this.profiles = [
-      {
-        id: 1,
-        name: 'Emma',
-        age: 20,
-        major: 'Computer Science',
-        year: 'Junior',
-        bio: 'Love coding, hiking, and trying new coffee shops around Lawrence! Always up for an adventure.',
-        interests: ['Programming', 'Hiking', 'Coffee', 'Photography', 'Rock Climbing'],
-        image: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=400&h=600&fit=crop&crop=face'
+  loadQueue() {
+    const userId = Number(localStorage.getItem('user_id') || 0);
+    if (!userId) {
+      console.error('No user_id found');
+      return;
+    }
+
+    this.isLoading = true;
+    this.profileService.getQueue(userId).subscribe({
+      next: (backendProfiles: ProfileDto[]) => {
+        this.profiles = backendProfiles.map(p => this.convertToProfile(p));
+        this.currentIndex = 0;
+        this.currentProfile = this.profiles[0] || null;
+        this.isLoading = false;
       },
-      {
-        id: 2,
-        name: 'Alex',
-        age: 22,
-        major: 'Business',
-        year: 'Senior',
-        bio: 'Future entrepreneur! Love basketball, cooking, and exploring new places. Let\'s grab some BBQ!',
-        interests: ['Basketball', 'Cooking', 'Travel', 'Business', 'Music'],
-        image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=600&fit=crop&crop=face'
-      },
-      {
-        id: 3,
-        name: 'Sarah',
-        age: 19,
-        major: 'Psychology',
-        year: 'Sophomore',
-        bio: 'Passionate about mental health and helping others. Love yoga, reading, and late-night talks.',
-        interests: ['Psychology', 'Yoga', 'Reading', 'Volunteering', 'Art'],
-        image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400&h=600&fit=crop&crop=face'
-      },
-      {
-        id: 4,
-        name: 'Jake',
-        age: 21,
-        major: 'Engineering',
-        year: 'Junior',
-        bio: 'Building the future one project at a time! Love gaming, craft beer, and weekend road trips.',
-        interests: ['Engineering', 'Gaming', 'Craft Beer', 'Road Trips', 'Technology'],
-        image: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&h=600&fit=crop&crop=face'
-      },
-      {
-        id: 5,
-        name: 'Maya',
-        age: 20,
-        major: 'Journalism',
-        year: 'Junior',
-        bio: 'Storyteller at heart! Love writing, dancing, and discovering hidden gems in Lawrence.',
-        interests: ['Writing', 'Dancing', 'Journalism', 'Podcasts', 'Food'],
-        image: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400&h=600&fit=crop&crop=face'
-      },
-      {
-        id: 6,
-        name: 'Ryan',
-        age: 23,
-        major: 'Biology',
-        year: 'Graduate',
-        bio: 'Research enthusiast! Love nature, fitness, and deep conversations about life and science.',
-        interests: ['Biology', 'Research', 'Fitness', 'Nature', 'Philosophy'],
-        image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&h=600&fit=crop&crop=face'
+      error: (err: any) => {
+        console.error('Failed to load queue:', err);
+        this.isLoading = false;
       }
-    ];
+    });
+  }
+
+  convertToProfile(dto: ProfileDto): Profile {
+    return {
+      id: dto.user_id,
+      name: dto.name || 'Anonymous',
+      age: dto.age || 0,
+      major: dto.major || 'Undeclared',
+      year: dto.year || 'Unknown',
+      bio: dto.bio || 'No bio provided',
+      interests: dto.interests || [],
+      image: dto.profile_picture
+        ? this.profileService.profilePictureUrl(dto.user_id)
+        : ''
+    };
   }
 
   onTouchStart(event: TouchEvent) {
@@ -462,7 +444,7 @@ export class SwipeInterfaceComponent implements OnInit {
 
   onTouchMove(event: TouchEvent) {
     if (!this.isDragging) return;
-    
+
     this.currentX = event.touches[0].clientX;
     this.currentY = event.touches[0].clientY;
     this.updateCardTransform();
@@ -470,7 +452,7 @@ export class SwipeInterfaceComponent implements OnInit {
 
   onTouchEnd(event: TouchEvent) {
     if (!this.isDragging) return;
-    
+
     this.isDragging = false;
     this.handleSwipeEnd();
   }
@@ -484,7 +466,7 @@ export class SwipeInterfaceComponent implements OnInit {
 
   onMouseMove(event: MouseEvent) {
     if (!this.isDragging) return;
-    
+
     this.currentX = event.clientX;
     this.currentY = event.clientY;
     this.updateCardTransform();
@@ -492,7 +474,7 @@ export class SwipeInterfaceComponent implements OnInit {
 
   onMouseUp(event: MouseEvent) {
     if (!this.isDragging) return;
-    
+
     this.isDragging = false;
     this.handleSwipeEnd();
   }
@@ -501,16 +483,16 @@ export class SwipeInterfaceComponent implements OnInit {
     const deltaX = this.currentX - this.startX;
     const deltaY = this.currentY - this.startY;
     const rotation = deltaX * 0.1;
-    
+
     this.cardTransform = `translate(${deltaX}px, ${deltaY}px) rotate(${rotation}deg)`;
-    
+
     // Update swipe direction
     if (Math.abs(deltaX) > 50) {
       this.swipeDirection = deltaX > 0 ? 'right' : 'left';
     } else {
       this.swipeDirection = '';
     }
-    
+
     // Update opacity based on distance
     const distance = Math.abs(deltaX);
     this.cardOpacity = Math.max(0.3, 1 - distance / 300);
@@ -518,7 +500,7 @@ export class SwipeInterfaceComponent implements OnInit {
 
   handleSwipeEnd() {
     const deltaX = this.currentX - this.startX;
-    
+
     if (Math.abs(deltaX) > 100) {
       if (deltaX > 0) {
         this.swipeRight();
@@ -535,14 +517,14 @@ export class SwipeInterfaceComponent implements OnInit {
 
   swipeRight() {
     if (!this.currentProfile) return;
-    
+
     this.likedProfiles.push(this.currentProfile);
     this.nextProfile();
   }
 
   swipeLeft() {
     if (!this.currentProfile) return;
-    
+
     this.passedProfiles.push(this.currentProfile);
     this.nextProfile();
   }
@@ -554,12 +536,4 @@ export class SwipeInterfaceComponent implements OnInit {
     this.cardOpacity = 1;
     this.swipeDirection = '';
   }
-
-  resetProfiles() {
-    this.currentIndex = 0;
-    this.currentProfile = this.profiles[0] || null;
-    this.likedProfiles = [];
-    this.passedProfiles = [];
-  }
 }
-

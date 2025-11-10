@@ -2,6 +2,7 @@ import { Component, OnDestroy, OnInit, ViewChild, ElementRef } from '@angular/co
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ChatMessage, ChatService } from '../../services/chat.service';
+import { ProfileService, ProfileDto } from '../../services/profile.service';
 
 @Component({
   selector: 'app-chat-window',
@@ -234,16 +235,10 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
 
   private subs: Subscription[] = [];
 
-  contacts = [
-    { id: 2, name: 'Emma', emoji: '👩‍💻' },
-    { id: 3, name: 'Alex', emoji: '🏀' },
-    { id: 4, name: 'Sarah', emoji: '🧘' },
-    { id: 5, name: 'Jake', emoji: '🛠️' },
-    { id: 6, name: 'Maya', emoji: '📝' }
-  ];
+  contacts: Array<{ id: number; name: string; emoji: string }> = [];
   lastMessage: { [id: number]: { content: string; timestamp: number } } = {};
 
-  constructor(private chat: ChatService, private router: Router) { }
+  constructor(private chat: ChatService, private router: Router, private profiles: ProfileService) { }
 
   ngOnInit(): void {
     const storedUserId = localStorage.getItem('user_id');
@@ -252,6 +247,21 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
       return;
     }
     this.meId = parseInt(storedUserId, 10);
+    this.profiles.getQueue(this.meId).subscribe({
+      next: (profiles) => {
+        this.contacts = profiles.map(p => ({
+          id: p.user_id,
+          name: p.name || 'User ' + p.user_id,
+          emoji: this.getEmojiForUser(p)
+        }));
+        if (this.contacts.length) {
+          this.selectPeer(this.contacts[0].id);
+        }
+      },
+      error: () => {
+        console.error('Failed to load contacts');
+      }
+    });
 
     this.chat.connect(this.meId);
     this.subs.push(
@@ -266,9 +276,12 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
         }
       })
     );
-    if (this.contacts.length) {
-      this.selectPeer(this.contacts[0].id);
-    }
+  }
+
+  private getEmojiForUser(profile: ProfileDto): string {
+    const emojis = ['👤', '😊', '🎓', '💼', '🎨', '🔬', '⚡', '🌟', '🎯', '🚀'];
+    const hash = profile.user_id % emojis.length;
+    return emojis[hash];
   }
 
   ngOnDestroy(): void {

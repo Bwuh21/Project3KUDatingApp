@@ -1,4 +1,3 @@
-// main.rs
 /*
 Name: JayMatch server
 Description: A server for handling the JayMatch website and communicate with the database
@@ -28,6 +27,7 @@ use std::sync::Mutex;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Profile {
     user_id: i32,
+    email: String,
     name: Option<String>,
     age: Option<i32>,
     major: Option<String>,
@@ -110,26 +110,20 @@ async fn create_new_user(data: web::Json<NewUser>, state: web::Data<AppState>) -
         }));
     }
     let conn = state.db_conn.lock().unwrap();
-    // Insert into users for login purposes
-    let res_users = conn.execute(
-        "INSERT INTO users (name, password) VALUES (?1, ?2)",
-        params![data.name, data.password],
+    let res = conn.execute(
+        "INSERT INTO profiles (email, password, name) VALUES (?1, ?2, ?3)",
+        params![data.email, data.password, data.name],
     );
-    if let Err(e) = res_users {
+    if let Err(e) = res {
         return HttpResponse::InternalServerError().json(serde_json::json!({
             "success": false,
             "message": format!("Error creating user: {}", e)
         }));
     }
     let user_id = conn.last_insert_rowid();
-    // Also store extended info in new_users (legacy table with email)
-    let _ = conn.execute(
-        "INSERT INTO new_users (name, password, email) VALUES (?1, ?2, ?3)",
-        params![data.name, data.password, data.email],
-    );
     println!(
-        "Created new user with name {} passwprd {} email {}",
-        data.name, data.password, data.email
+        "Created new user with name {} email {}",
+        data.name, data.email
     );
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -182,18 +176,17 @@ async fn update_profile_picture(
 
     if let (Some(uid), Some(path)) = (user_id, file_path) {
         let conn = state.db_conn.lock().unwrap();
-        // Update legacy table for compatibility
-        let _ = conn.execute(
-            "UPDATE new_users SET profile_picture = ?1 WHERE id = ?2",
+        let result = conn.execute(
+            "UPDATE profiles SET profile_picture = ?1 WHERE user_id = ?2",
             params![path, uid],
         );
-        // Upsert into profiles table
-        let _ = conn.execute(
-            "INSERT INTO profiles (user_id, profile_picture) VALUES (?1, ?2)
-             ON CONFLICT(user_id) DO UPDATE SET profile_picture = excluded.profile_picture",
-            params![uid, path],
-        );
-        HttpResponse::Ok().body("Profile picture updated")
+        match result {
+            Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "message": "Profile picture updated"
+            })),
+            Err(e) => HttpResponse::InternalServerError().body(format!("DB error: {}", e)),
+        }
     } else {
         HttpResponse::BadRequest().body("Missing user_id or image")
     }
@@ -202,7 +195,7 @@ async fn update_profile_picture(
 async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let mut stmt = conn
-        .prepare("SELECT id, name, password FROM new_users WHERE email = ?1")
+        .prepare("SELECT user_id, name, password FROM profiles WHERE email = ?1")
         .unwrap();
     let user_result = stmt.query_row(params![data.name], |row| {
         Ok(User {
@@ -250,7 +243,7 @@ async fn get_profile_picture(
 ) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let result = conn.query_row(
-        "SELECT profile_picture FROM new_users WHERE id = ?1",
+        "SELECT profile_picture FROM profiles WHERE user_id = ?1",
         params![user_id.into_inner()],
         |row| row.get::<_, Option<String>>(0),
     );
@@ -394,9 +387,8 @@ async fn get_messages(
 }
 
 fn row_to_profile(row: &rusqlite::Row) -> Profile {
-    let interests_text: Option<String> = row.get(6).ok();
+    let interests_text: Option<String> = row.get(8).ok();
     let interests: Option<Vec<String>> = interests_text.as_ref().and_then(|txt| {
-        // Try JSON first, fallback to comma-separated
         serde_json::from_str::<Vec<String>>(txt).ok().or_else(|| {
             let items: Vec<String> = txt
                 .split(',')
@@ -408,11 +400,12 @@ fn row_to_profile(row: &rusqlite::Row) -> Profile {
     });
     Profile {
         user_id: row.get(0).unwrap_or(0),
-        name: row.get(1).ok(),
-        age: row.get(2).ok(),
-        major: row.get(3).ok(),
-        year: row.get(4).ok(),
-        bio: row.get(5).ok(),
+        email: row.get(1).unwrap_or_default(),
+        name: row.get(2).ok(),
+        age: row.get(3).ok(),
+        major: row.get(4).ok(),
+        year: row.get(5).ok(),
+        bio: row.get(6).ok(),
         interests,
         profile_picture: row.get(7).ok(),
     }
@@ -422,7 +415,7 @@ async fn get_profile(user_id: web::Path<i32>, state: web::Data<AppState>) -> imp
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
     let mut stmt = match conn.prepare(
-        "SELECT user_id, name, age, major, year, bio, interests, profile_picture
+        "SELECT user_id, email, name, age, major, year, bio, profile_picture, interests
          FROM profiles WHERE user_id = ?1",
     ) {
         Ok(s) => s,
@@ -449,7 +442,7 @@ async fn put_profile(
     let current: Option<Profile> = {
         let stmt = conn
             .prepare(
-                "SELECT user_id, name, age, major, year, bio, interests, profile_picture
+                "SELECT user_id, email, name, age, major, year, bio, profile_picture, interests
                  FROM profiles WHERE user_id = ?1",
             )
             .ok();
@@ -484,27 +477,18 @@ async fn put_profile(
         .as_ref()
         .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "".to_string()));
 
-    // Upsert
     let result = conn.execute(
-        "INSERT INTO profiles (user_id, name, age, major, year, bio, interests, profile_picture)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-         ON CONFLICT(user_id) DO UPDATE SET
-             name = excluded.name,
-             age = excluded.age,
-             major = excluded.major,
-             year = excluded.year,
-             bio = excluded.bio,
-             interests = excluded.interests,
-             profile_picture = excluded.profile_picture",
+        "UPDATE profiles SET name = ?1, age = ?2, major = ?3, year = ?4, bio = ?5, interests = ?6, profile_picture = ?7
+         WHERE user_id = ?8",
         params![
-            uid,
             merged_name,
             merged_age,
             merged_major,
             merged_year,
             merged_bio,
             interests_text,
-            merged_picture
+            merged_picture,
+            uid
         ],
     );
 
@@ -591,37 +575,58 @@ async fn ws_index(
     ws::start(ws, &req, stream)
 }
 
+async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
+    let uid = user_id.into_inner();
+    let conn = state.db_conn.lock().unwrap();
+    let mut stmt = match conn.prepare(
+        "SELECT user_id, email, name, age, major, year, bio, profile_picture, interests
+         FROM profiles 
+         WHERE user_id != ?1
+         ORDER BY RANDOM()
+         LIMIT 20",
+    ) {
+        Ok(s) => s,
+        Err(_) => return HttpResponse::InternalServerError().body("Database error"),
+    };
+
+    let rows = stmt.query_map(params![uid], |row| Ok(row_to_profile(row)));
+
+    match rows {
+        Ok(profiles) => {
+            let profile_list: Vec<Profile> = profiles.filter_map(|r| r.ok()).collect();
+            println!(
+                "User {} requested queue, returning {} profiles",
+                uid,
+                profile_list.len()
+            );
+            HttpResponse::Ok().json(profile_list)
+        }
+        Err(_) => HttpResponse::InternalServerError().body("Database error"),
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("info"));
     let conn = Connection::open("test.db").unwrap();
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL)",
-        params![],
-    ).unwrap();
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS logins (id INTEGER PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL)",
-        params![],
-    ).unwrap();
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS new_users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, password TEXT NOT NULL, email TEXT NOT NULL, profile_picture TEXT)",
-        params![],
-    ).unwrap();
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS profiles (
-            user_id INTEGER PRIMARY KEY,
+            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
             name TEXT,
             age INTEGER,
             major TEXT,
             year TEXT,
             bio TEXT,
             interests TEXT,
-            profile_picture TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            profile_picture TEXT
         )",
         params![],
     )
     .unwrap();
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY,
@@ -633,6 +638,7 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
+
     let state = web::Data::new(AppState::new(conn));
     HttpServer::new(move || {
         App::new()
@@ -661,13 +667,11 @@ async fn main() -> std::io::Result<()> {
                 "/users/{user_id}/profile-picture",
                 web::get().to(get_profile_picture),
             )
-            // profiles endpoints
+            .route("/queue/{user_id}", web::get().to(get_queue))
             .route("/profiles/{user_id}", web::get().to(get_profile))
             .route("/profiles/{user_id}", web::put().to(put_profile))
-            // messaging routes
             .route("/messages", web::post().to(post_message))
             .route("/messages/{a}/{b}", web::get().to(get_messages))
-            // websocket
             .route("/ws/{user_id}", web::get().to(ws_index))
     })
     .bind(("127.0.0.1", 8080))?

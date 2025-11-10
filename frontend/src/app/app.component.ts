@@ -585,6 +585,16 @@ export class AppComponent {
   }
 
   openProfileForm() {
+    this.profileForm = {
+      name: '',
+      age: null,
+      major: '',
+      year: '',
+      bio: '',
+      interestsCsv: ''
+    };
+    this.profilePhotoDataUrl = null;
+    this.profilePhotoFile = null;
     this.showProfileForm = true;
     this.profiles.getProfile(this.userId).subscribe({
       next: (p) => {
@@ -600,7 +610,9 @@ export class AppComponent {
           this.profilePhotoDataUrl = this.profiles.profilePictureUrl(this.userId);
         }
       },
-      error: () => { }
+      error: (err) => {
+        console.log('No existing profile data found (this is normal for new users)');
+      }
     });
   }
 

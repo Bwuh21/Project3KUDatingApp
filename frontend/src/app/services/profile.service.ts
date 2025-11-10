@@ -47,6 +47,10 @@ export class ProfileService {
   profilePictureUrl(userId: number): string {
     return `${this.base}/users/${userId}/profile-picture`;
   }
+
+  getQueue(userId: number): Observable<ProfileDto[]> {
+    return this.http.get<ProfileDto[]>(`${this.base}/queue/${userId}`);
+  }
 }
 
 
