@@ -25,7 +25,7 @@ export class ChatService {
   private system$ = new Subject<string>();
   private meId: number | null = null;
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient) { }
 
   connect(userId: number): void {
     if (this.websocket && this.isConnected$.value && this.meId === userId) {
@@ -33,7 +33,7 @@ export class ChatService {
     }
     this.disconnect();
     this.meId = userId;
-    const wsUrl = `ws://https://api.jaymatch.cc//ws/${userId}`;
+    const wsUrl = `wss://api.jaymatch.cc/ws/${userId}`;
     const ws = new WebSocket(wsUrl);
     this.websocket = ws;
 
@@ -70,7 +70,7 @@ export class ChatService {
     if (this.websocket) {
       try {
         this.websocket.close();
-      } catch {}
+      } catch { }
       this.websocket = null;
     }
     this.isConnected$.next(false);

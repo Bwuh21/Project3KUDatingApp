@@ -272,6 +272,7 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
           this.lastMessage[otherId] = { content: m.content, timestamp: m.timestamp };
         }
         if (this.peerId && (m.sender_id === this.peerId || m.receiver_id === this.peerId)) {
+          this.messages.push(m);
           this.scrollToBottomSoon();
         }
       })
