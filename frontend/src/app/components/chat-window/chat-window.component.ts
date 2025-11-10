@@ -73,8 +73,7 @@ import { ChatMessage, ChatService } from '../../services/chat.service';
               type="text" 
               placeholder="Type a message…" 
               [(ngModel)]="draft" 
-              name="draft"
-              (keydown.enter)="send()">
+              name="draft">
             <button type="submit" class="send-btn" [disabled]="!canSend()">Send</button>
           </form>
         </div>
@@ -263,7 +262,6 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
           this.lastMessage[otherId] = { content: m.content, timestamp: m.timestamp };
         }
         if (this.peerId && (m.sender_id === this.peerId || m.receiver_id === this.peerId)) {
-          this.messages.push(m);
           this.scrollToBottomSoon();
         }
       })
