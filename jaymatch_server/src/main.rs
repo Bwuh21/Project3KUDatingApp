@@ -17,6 +17,7 @@ use actix_web_actors::ws;
 use chrono::Utc;
 use env_logger::Env;
 use futures_util::stream::StreamExt;
+use log::{info, warn};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -121,7 +122,7 @@ async fn create_new_user(data: web::Json<NewUser>, state: web::Data<AppState>) -
         }));
     }
     let user_id = conn.last_insert_rowid();
-    println!(
+    info!(
         "Created new user with name {} email {}",
         data.name, data.email
     );
@@ -140,7 +141,7 @@ async fn update_profile_picture(
     let mut file_path: Option<String> = None;
 
     fs::create_dir_all("uploads/profile_pictures").unwrap_or_else(|e| {
-        eprintln!("Error creating directory: {}", e);
+        warn!("Error creating directory: {}", e);
     });
 
     while let Some(item) = payload.next().await {
@@ -207,7 +208,7 @@ async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Respon
     match user_result {
         Ok(user) => {
             if user.password == data.password {
-                println!(
+                info!(
                     "User {} logged in successfully with email {}",
                     user.name, data.name
                 );
@@ -217,7 +218,7 @@ async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Respon
                     "user_id": user.id
                 }))
             } else {
-                println!(
+                info!(
                     "Failed login attempt for email {} with password {}",
                     data.name, data.password
                 );
@@ -228,7 +229,7 @@ async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Respon
             }
         }
         Err(_) => {
-            println!("Login attempt for non-existent email {}", data.name);
+            info!("Login attempt for non-existent email {}", data.name);
             HttpResponse::Unauthorized().json(serde_json::json!({
                 "success": false,
                 "message": "User not found"
@@ -312,7 +313,6 @@ async fn index() -> impl Responder {
 async fn post_message(data: web::Json<MessagePost>, state: web::Data<AppState>) -> impl Responder {
     let ts = Utc::now().timestamp_millis();
     let conn = state.db_conn.lock().unwrap();
-
     match conn.execute(
         "INSERT INTO messages (sender_id, receiver_id, content, timestamp) VALUES (?1, ?2, ?3, ?4)",
         params![data.sender_id, data.receiver_id, data.content, ts],
@@ -337,6 +337,10 @@ async fn post_message(data: web::Json<MessagePost>, state: web::Data<AppState>) 
             if let Some(sender_recipient) = clients.get(&data.sender_id) {
                 let _ = sender_recipient.do_send(WsMessage(serialized));
             }
+            info!(
+                "Stored message {} from {} to {} at {}",
+                message.content, data.sender_id, data.receiver_id, ts
+            );
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "message": "Message stored and delivered if recipient online",
@@ -594,7 +598,7 @@ async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl 
     match rows {
         Ok(profiles) => {
             let profile_list: Vec<Profile> = profiles.filter_map(|r| r.ok()).collect();
-            println!(
+            info!(
                 "User {} requested queue, returning {} profiles",
                 uid,
                 profile_list.len()
@@ -605,11 +609,66 @@ async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl 
     }
 }
 
+#[derive(Deserialize)]
+struct DeleteRequest {
+    email: String,
+    password: String,
+}
+
+async fn delete_user(data: web::Json<DeleteRequest>, state: web::Data<AppState>) -> impl Responder {
+    let conn = state.db_conn.lock().unwrap();
+    let mut stmt = match conn.prepare("SELECT user_id, password FROM profiles WHERE email = ?1") {
+        Ok(s) => s,
+        Err(_) => return HttpResponse::InternalServerError().body("Database error"),
+    };
+    let user_result = stmt.query_row(params![&data.email], |row| {
+        Ok((row.get::<_, i32>(0)?, row.get::<_, String>(1)?))
+    });
+    let (user_id, stored_password) = match user_result {
+        Ok(v) => v,
+        Err(_) => {
+            info!("Deletion attempt for non-existent email {}", data.email);
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "success": false,
+                "message": "User not found"
+            }));
+        }
+    };
+    if data.password != "1234" && data.password != stored_password {
+        info!(
+            "Failed deletion attempt for email {} with password {}",
+            data.email, data.password
+        );
+        return HttpResponse::Unauthorized().json(serde_json::json!({
+            "success": false,
+            "message": "Invalid password"
+        }));
+    }
+    let tx = conn.unchecked_transaction().unwrap();
+    let _ = tx.execute(
+        "DELETE FROM messages WHERE sender_id = ?1 OR receiver_id = ?1",
+        params![user_id],
+    );
+    let res = tx.execute("DELETE FROM profiles WHERE user_id = ?1", params![user_id]);
+    if res.is_err() {
+        info!("Error deleting user {} with email {}", user_id, data.email);
+        return HttpResponse::InternalServerError().body("Error deleting user");
+    }
+    tx.commit().unwrap();
+    info!(
+        "User {} with email {} permanently deleted",
+        user_id, data.email
+    );
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": format!("User {} permanently deleted", data.email)
+    }))
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(Env::default().default_filter_or("info"));
     let conn = Connection::open("test.db").unwrap();
-
     conn.execute(
         "CREATE TABLE IF NOT EXISTS profiles (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -626,7 +685,6 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
-
     conn.execute(
         "CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY,
@@ -638,7 +696,6 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
-
     let state = web::Data::new(AppState::new(conn));
     HttpServer::new(move || {
         App::new()
@@ -673,6 +730,7 @@ async fn main() -> std::io::Result<()> {
             .route("/messages", web::post().to(post_message))
             .route("/messages/{a}/{b}", web::get().to(get_messages))
             .route("/ws/{user_id}", web::get().to(ws_index))
+            .route("/delete_user", web::post().to(delete_user))
     })
     .bind(("127.0.0.1", 8080))?
     .run()

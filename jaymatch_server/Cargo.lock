@@ -1086,6 +1086,7 @@ dependencies = [
  "chrono",
  "env_logger",
  "futures-util",
+ "log",
  "rusqlite",
  "serde",
  "serde_json",
