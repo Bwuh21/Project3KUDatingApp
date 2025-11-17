@@ -325,8 +325,24 @@ async fn index() -> impl Responder {
 }
 
 async fn post_message(data: web::Json<MessagePost>, state: web::Data<AppState>) -> impl Responder {
-    let ts = Utc::now().timestamp_millis();
     let conn = state.db_conn.lock().unwrap();
+    let (lower_id, higher_id) = if data.sender_id < data.receiver_id {
+        (data.sender_id, data.receiver_id)
+    } else {
+        (data.receiver_id, data.sender_id)
+    };
+    let match_exists = conn.query_row(
+        "SELECT 1 FROM matches WHERE user_id = ?1 AND matched_user_id = ?2",
+        params![lower_id, higher_id],
+        |_| Ok(()),
+    );
+    if match_exists.is_err() {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "success": false,
+            "message": "Cannot message users you haven't matched with"
+        }));
+    }
+    let ts = Utc::now().timestamp_millis();
     match conn.execute(
         "INSERT INTO messages (sender_id, receiver_id, content, timestamp) VALUES (?1, ?2, ?3, ?4)",
         params![data.sender_id, data.receiver_id, data.content, ts],
@@ -829,6 +845,19 @@ struct PreferencesUpsert {
     is_felon: Option<bool>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Match {
+    user_id: i32,
+    matched_user_id: i32,
+    timestamp: i64,
+}
+
+#[derive(Deserialize)]
+struct MatchRequest {
+    user_id: i32,
+    matched_user_id: i32,
+}
+
 async fn delete_user(data: web::Json<DeleteRequest>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let mut stmt = match conn.prepare("SELECT user_id, password FROM profiles WHERE email = ?1") {
@@ -966,6 +995,90 @@ async fn put_preferences(
     }
 }
 
+async fn create_match(data: web::Json<MatchRequest>, state: web::Data<AppState>) -> impl Responder {
+    let conn = state.db_conn.lock().unwrap();
+    let ts = Utc::now().timestamp_millis();
+    let (lower_id, higher_id) = if data.user_id < data.matched_user_id {
+        (data.user_id, data.matched_user_id)
+    } else {
+        (data.matched_user_id, data.user_id)
+    };
+    let existing = conn.query_row(
+        "SELECT 1 FROM matches WHERE user_id = ?1 AND matched_user_id = ?2",
+        params![lower_id, higher_id],
+        |_| Ok(()),
+    );
+    if existing.is_ok() {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "message": "Match already exists"
+        }));
+    }
+    match conn.execute(
+        "INSERT INTO matches (user_id, matched_user_id, timestamp) VALUES (?1, ?2, ?3)",
+        params![lower_id, higher_id, ts],
+    ) {
+        Ok(_) => {
+            info!(
+                "Created match between {} and {}",
+                data.user_id, data.matched_user_id
+            );
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "message": "Match created"
+            }))
+        }
+        Err(e) => HttpResponse::InternalServerError().body(format!("DB error: {}", e)),
+    }
+}
+
+async fn delete_match(data: web::Json<MatchRequest>, state: web::Data<AppState>) -> impl Responder {
+    let conn = state.db_conn.lock().unwrap();
+    let (lower_id, higher_id) = if data.user_id < data.matched_user_id {
+        (data.user_id, data.matched_user_id)
+    } else {
+        (data.matched_user_id, data.user_id)
+    };
+    match conn.execute(
+        "DELETE FROM matches WHERE user_id = ?1 AND matched_user_id = ?2",
+        params![lower_id, higher_id],
+    ) {
+        Ok(_) => {
+            info!(
+                "Deleted match between {} and {}",
+                data.user_id, data.matched_user_id
+            );
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "message": "Match deleted"
+            }))
+        }
+        Err(e) => HttpResponse::InternalServerError().body(format!("DB error: {}", e)),
+    }
+}
+
+async fn get_matches(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
+    let uid = user_id.into_inner();
+    let conn = state.db_conn.lock().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT CASE WHEN user_id = ?1 THEN matched_user_id ELSE user_id END as matched_id, timestamp
+         FROM matches 
+         WHERE user_id = ?1 OR matched_user_id = ?1"
+    ).unwrap();
+    let matches: Vec<Match> = stmt
+        .query_map(params![uid], |row| {
+            Ok(Match {
+                user_id: uid,
+                matched_user_id: row.get(0)?,
+                timestamp: row.get(1)?,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect();
+    HttpResponse::Ok().json(matches)
+}
+
 fn rotate_backups() {
     fs::create_dir_all("db_backups").ok();
     let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
@@ -996,6 +1109,18 @@ async fn main() -> std::io::Result<()> {
     rotate_backups();
     env_logger::init_from_env(Env::default().default_filter_or("info"));
     let conn = Connection::open("test.db").unwrap();
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS matches (
+            user_id INTEGER NOT NULL,
+            matched_user_id INTEGER NOT NULL,
+            timestamp INTEGER NOT NULL,
+            PRIMARY KEY (user_id, matched_user_id),
+            FOREIGN KEY(user_id) REFERENCES profiles(user_id),
+            FOREIGN KEY(matched_user_id) REFERENCES profiles(user_id)
+        )",
+        params![],
+    )
+    .unwrap();
     conn.execute(
         "CREATE TABLE IF NOT EXISTS profiles (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1077,6 +1202,9 @@ async fn main() -> std::io::Result<()> {
             .route("/preferences/{user_id}", web::get().to(get_preferences))
             .route("/preferences/{user_id}", web::put().to(put_preferences))
             .route("/preference-options", web::get().to(get_preference_options))
+            .route("/matches", web::post().to(create_match))
+            .route("/matches", web::delete().to(delete_match))
+            .route("/matches/{user_id}", web::get().to(get_matches))
     })
     .bind(("127.0.0.1", 8080))?
     .run()
