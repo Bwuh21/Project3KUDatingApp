@@ -15,7 +15,7 @@ export interface RegisterResponse {
 }
 
 export interface LoginPayload {
-  name: string;
+  email: string;
   password: string;
 }
 
@@ -29,7 +29,7 @@ export interface LoginResponse {
 export class AuthService {
   private readonly base = 'https://api.jaymatch.cc';
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient) { }
 
   register(payload: RegisterPayload): Observable<RegisterResponse> {
     return this.http.post<RegisterResponse>(`${this.base}/users/new`, payload);

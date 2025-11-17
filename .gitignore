@@ -100,4 +100,5 @@ jspm_packages/
 .tern-port
 
 #database
-jaymatch_server\test.db
+jaymatch_server/test.db
+jaymatch_server/db_backups/

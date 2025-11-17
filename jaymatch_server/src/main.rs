@@ -14,7 +14,7 @@ use actix_multipart::Multipart;
 use actix_web::middleware::Logger;
 use actix_web::{App, Error, HttpRequest, HttpResponse, HttpServer, Responder, web};
 use actix_web_actors::ws;
-use chrono::Utc;
+use chrono::{Local, Utc};
 use env_logger::Env;
 use futures_util::stream::StreamExt;
 use log::{info, warn};
@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
+use std::path::Path;
 use std::sync::Mutex;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -36,6 +37,8 @@ struct Profile {
     bio: Option<String>,
     interests: Option<Vec<String>>,
     profile_picture: Option<String>,
+    gender: Option<String>,
+    is_felon: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -47,12 +50,13 @@ struct ProfileUpsert {
     bio: Option<String>,
     interests: Option<Vec<String>>,
     profile_picture: Option<String>,
+    gender: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct User {
     id: Option<i32>,
-    name: String,
+    email: String,
     password: String,
 }
 
@@ -195,23 +199,30 @@ async fn update_profile_picture(
 
 async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
-    let mut stmt = conn
-        .prepare("SELECT user_id, name, password FROM profiles WHERE email = ?1")
-        .unwrap();
-    let user_result = stmt.query_row(params![data.name], |row| {
+    let mut stmt =
+        match conn.prepare("SELECT user_id, email, password FROM profiles WHERE email = ?1") {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Failed to prepare statement: {}", e);
+                return HttpResponse::InternalServerError().body("Database error");
+            }
+        };
+    let user_result = stmt.query_row(params![data.email], |row| {
         Ok(User {
             id: row.get(0)?,
-            name: row.get(1)?,
+            email: row.get(1)?,
             password: row.get(2)?,
         })
     });
     match user_result {
         Ok(user) => {
+            info!("Found user with email: {}", user.email);
+            info!(
+                "Stored password: {}, Provided password: {}",
+                user.password, data.password
+            );
             if user.password == data.password {
-                info!(
-                    "User {} logged in successfully with email {}",
-                    user.name, data.name
-                );
+                info!("User logged in successfully with email {}", data.email);
                 HttpResponse::Ok().json(serde_json::json!({
                     "success": true,
                     "message": "Login successful",
@@ -219,8 +230,8 @@ async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Respon
                 }))
             } else {
                 info!(
-                    "Failed login attempt for email {} with password {}",
-                    data.name, data.password
+                    "Failed login attempt for email {} - password mismatch",
+                    data.email
                 );
                 HttpResponse::Unauthorized().json(serde_json::json!({
                     "success": false,
@@ -228,8 +239,11 @@ async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Respon
                 }))
             }
         }
-        Err(_) => {
-            info!("Login attempt for non-existent email {}", data.name);
+        Err(e) => {
+            info!(
+                "Login attempt for non-existent email {} - Error: {}",
+                data.email, e
+            );
             HttpResponse::Unauthorized().json(serde_json::json!({
                 "success": false,
                 "message": "User not found"
@@ -412,6 +426,8 @@ fn row_to_profile(row: &rusqlite::Row) -> Profile {
         bio: row.get(6).ok(),
         interests,
         profile_picture: row.get(7).ok(),
+        gender: row.get(9).ok(),
+        is_felon: row.get(10).ok(),
     }
 }
 
@@ -419,8 +435,8 @@ async fn get_profile(user_id: web::Path<i32>, state: web::Data<AppState>) -> imp
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
     let mut stmt = match conn.prepare(
-        "SELECT user_id, email, name, age, major, year, bio, profile_picture, interests
-         FROM profiles WHERE user_id = ?1",
+        "SELECT user_id, email, name, age, major, year, bio, profile_picture, interests, gender, is_felon
+ FROM profiles WHERE user_id = ?1",
     ) {
         Ok(s) => s,
         Err(_) => return HttpResponse::InternalServerError().body("Database error"),
@@ -442,12 +458,50 @@ async fn put_profile(
 ) -> impl Responder {
     let uid = user_id.into_inner();
     let payload = data.into_inner();
+    const VALID_GENDERS: &[&str] = &["male", "female", "other"];
+    const VALID_YEARS: &[&str] = &["freshman", "sophomore", "junior", "senior"];
+    const VALID_MAJORS: &[&str] = &[
+        "computer science",
+        "information technology",
+        "electrical engineering",
+        "mechanical engineering",
+        "business",
+        "biology",
+        "psychology",
+    ];
+    if let Some(ref g) = payload.gender {
+        let norm = g.to_ascii_lowercase();
+        if !VALID_GENDERS.contains(&norm.as_str()) {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "message": "Invalid gender. Allowed: Male, Female, Other"
+            }));
+        }
+    }
+    if let Some(ref y) = payload.year {
+        let norm = y.to_ascii_lowercase();
+        if !VALID_YEARS.contains(&norm.as_str()) {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "message": "Invalid year. Allowed: Freshman, Sophomore, Junior, Senior"
+            }));
+        }
+    }
+    if let Some(ref m) = payload.major {
+        let norm = m.to_ascii_lowercase();
+        if !VALID_MAJORS.contains(&norm.as_str()) {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "success": false,
+                "message": "Invalid major."
+            }));
+        }
+    }
     let conn = state.db_conn.lock().unwrap();
     let current: Option<Profile> = {
         let stmt = conn
             .prepare(
-                "SELECT user_id, email, name, age, major, year, bio, profile_picture, interests
-                 FROM profiles WHERE user_id = ?1",
+                "SELECT user_id, email, name, age, major, year, bio, profile_picture, interests, gender, is_felon
+ FROM profiles WHERE user_id = ?1",
             )
             .ok();
         match stmt {
@@ -461,12 +515,39 @@ async fn put_profile(
         .name
         .or_else(|| current.as_ref().and_then(|c| c.name.clone()));
     let merged_age = payload.age.or_else(|| current.as_ref().and_then(|c| c.age));
-    let merged_major = payload
-        .major
-        .or_else(|| current.as_ref().and_then(|c| c.major.clone()));
-    let merged_year = payload
-        .year
-        .or_else(|| current.as_ref().and_then(|c| c.year.clone()));
+    let validated_major = if let Some(m) = &payload.major {
+        let norm = m.to_ascii_lowercase();
+        Some(
+            VALID_MAJORS
+                .iter()
+                .find(|x| x.eq_ignore_ascii_case(&norm))
+                .unwrap()
+                .to_string()
+                .split_whitespace()
+                .map(|w| {
+                    let mut c = w.chars();
+                    c.next()
+                        .map(|f| f.to_ascii_uppercase().to_string())
+                        .unwrap_or_default()
+                        + c.as_str()
+                })
+                .collect::<Vec<String>>()
+                .join(" "),
+        )
+    } else {
+        current.as_ref().and_then(|c| c.major.clone())
+    };
+    let validated_year = if let Some(y) = &payload.year {
+        match y.to_ascii_lowercase().as_str() {
+            "freshman" => Some("Freshman".to_string()),
+            "sophomore" => Some("Sophomore".to_string()),
+            "junior" => Some("Junior".to_string()),
+            "senior" => Some("Senior".to_string()),
+            _ => unreachable!(),
+        }
+    } else {
+        current.as_ref().and_then(|c| c.year.clone())
+    };
     let merged_bio = payload
         .bio
         .or_else(|| current.as_ref().and_then(|c| c.bio.clone()));
@@ -476,22 +557,31 @@ async fn put_profile(
     let merged_picture = payload
         .profile_picture
         .or_else(|| current.as_ref().and_then(|c| c.profile_picture.clone()));
-
+    let validated_gender = if let Some(g) = &payload.gender {
+        match g.to_ascii_lowercase().as_str() {
+            "male" => Some("Male".to_string()),
+            "female" => Some("Female".to_string()),
+            "other" => Some("Other".to_string()),
+            _ => unreachable!(),
+        }
+    } else {
+        current.as_ref().and_then(|c| c.gender.clone())
+    };
     let interests_text = merged_interests
         .as_ref()
         .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "".to_string()));
-
     let result = conn.execute(
-        "UPDATE profiles SET name = ?1, age = ?2, major = ?3, year = ?4, bio = ?5, interests = ?6, profile_picture = ?7
-         WHERE user_id = ?8",
+        "UPDATE profiles SET name = ?1, age = ?2, major = ?3, year = ?4, bio = ?5, interests = ?6, profile_picture = ?7, gender = ?8
+         WHERE user_id = ?9",
         params![
             merged_name,
             merged_age,
-            merged_major,
-            merged_year,
+            validated_major,
+            validated_year,
             merged_bio,
             interests_text,
             merged_picture,
+            validated_gender,
             uid
         ],
     );
@@ -500,6 +590,23 @@ async fn put_profile(
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({"success": true, "user_id": uid})),
         Err(e) => HttpResponse::InternalServerError().body(format!("DB error: {}", e)),
     }
+}
+
+async fn get_preference_options() -> impl Responder {
+    HttpResponse::Ok().json(serde_json::json!({
+        "gender_options": ["Male", "Female", "Other"],
+        "year_options": ["Freshman", "Sophomore", "Junior", "Senior"],
+        "major_options": [
+            "Computer Science",
+            "Information Technology",
+            "Electrical Engineering",
+            "Mechanical Engineering",
+            "Business",
+            "Biology",
+            "Psychology"
+        ],
+        "felon_options": [true, false]
+    }))
 }
 
 struct MyWs {
@@ -582,12 +689,31 @@ async fn ws_index(
 async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
+    let prefs_result = conn.query_row(
+        "SELECT gender_preference, min_age, max_age, year_preference, major_preference, is_felon FROM preferences WHERE user_id = ?1",
+        params![uid],
+        |row| {
+            let gender_pref_text: Option<String> = row.get(0).ok();
+            let year_pref_text: Option<String> = row.get(3).ok();
+            let major_pref_text: Option<String> = row.get(4).ok();
+            Ok((
+                gender_pref_text.and_then(|txt| serde_json::from_str::<Vec<String>>(&txt).ok()),
+                row.get::<_, Option<i32>>(1).ok().flatten(),
+                row.get::<_, Option<i32>>(2).ok().flatten(),
+                year_pref_text.and_then(|txt| serde_json::from_str::<Vec<String>>(&txt).ok()),
+                major_pref_text.and_then(|txt| serde_json::from_str::<Vec<String>>(&txt).ok()),
+                row.get::<_, Option<bool>>(5).ok().flatten(),
+            ))
+        },
+    );
+    let (gender_pref, min_age, max_age, year_pref, major_pref, is_felon_pref) =
+        prefs_result.unwrap_or((None, None, None, None, None, None));
     let mut stmt = match conn.prepare(
-        "SELECT user_id, email, name, age, major, year, bio, profile_picture, interests
+        "SELECT user_id, email, name, age, major, year, bio, profile_picture, interests, gender, is_felon
          FROM profiles 
          WHERE user_id != ?1
          ORDER BY RANDOM()
-         LIMIT 20",
+         LIMIT 100",
     ) {
         Ok(s) => s,
         Err(_) => return HttpResponse::InternalServerError().body("Database error"),
@@ -602,9 +728,70 @@ async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl 
     let rows = stmt.query_map(params![uid], |row| Ok(row_to_profile(row)));
     match rows {
         Ok(profiles) => {
-            let profile_list: Vec<Profile> = profiles.filter_map(|r| r.ok()).collect();
+            let mut profile_list: Vec<Profile> = profiles.filter_map(|r| r.ok()).collect();
+            profile_list.retain(|p| {
+                if let Some(ref genders) = gender_pref {
+                    if let Some(ref profile_gender) = p.gender {
+                        if !genders
+                            .iter()
+                            .any(|g| g.eq_ignore_ascii_case(profile_gender))
+                        {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                if let Some(min) = min_age {
+                    if let Some(age) = p.age {
+                        if age < min {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                if let Some(max) = max_age {
+                    if let Some(age) = p.age {
+                        if age > max {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                if let Some(ref years) = year_pref {
+                    if let Some(ref profile_year) = p.year {
+                        if !years.iter().any(|y| y.eq_ignore_ascii_case(profile_year)) {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                if let Some(ref majors) = major_pref {
+                    if let Some(ref profile_major) = p.major {
+                        if !majors.iter().any(|m| m.eq_ignore_ascii_case(profile_major)) {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                if let Some(is_felon) = is_felon_pref {
+                    if let Some(profile_is_felon) = p.is_felon {
+                        if profile_is_felon != is_felon {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                true
+            });
+            profile_list.truncate(20);
             info!(
-                "User {} email {} requested queue, returning {} profiles",
+                "User {} ({}) requested queue, returning {} profiles",
                 uid,
                 requesting_user_email.unwrap_or_else(|| "unknown".to_string()),
                 profile_list.len()
@@ -619,6 +806,27 @@ async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl 
 struct DeleteRequest {
     email: String,
     password: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct Preferences {
+    user_id: i32,
+    gender_preference: Option<Vec<String>>,
+    min_age: Option<i32>,
+    max_age: Option<i32>,
+    year_preference: Option<Vec<String>>,
+    major_preference: Option<Vec<String>>,
+    is_felon: Option<bool>,
+}
+
+#[derive(Deserialize, Debug)]
+struct PreferencesUpsert {
+    gender_preference: Option<Vec<String>>,
+    min_age: Option<i32>,
+    max_age: Option<i32>,
+    year_preference: Option<Vec<String>>,
+    major_preference: Option<Vec<String>>,
+    is_felon: Option<bool>,
 }
 
 async fn delete_user(data: web::Json<DeleteRequest>, state: web::Data<AppState>) -> impl Responder {
@@ -661,18 +869,131 @@ async fn delete_user(data: web::Json<DeleteRequest>, state: web::Data<AppState>)
         return HttpResponse::InternalServerError().body("Error deleting user");
     }
     tx.commit().unwrap();
-    info!(
-        "User {} with email {} permanently deleted",
-        user_id, data.email
-    );
+    info!("User {} ({}) permanently deleted", user_id, data.email);
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "message": format!("User {} permanently deleted", data.email)
     }))
 }
 
+async fn get_preferences(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
+    let uid = user_id.into_inner();
+    let conn = state.db_conn.lock().unwrap();
+    let email: String = conn
+        .query_row(
+            "SELECT email FROM profiles WHERE user_id = ?1",
+            params![uid],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| "unknown".to_string());
+    let result = conn.query_row(
+        "SELECT user_id, gender_preference, min_age, max_age, year_preference, major_preference, is_felon FROM preferences WHERE user_id = ?1",
+        params![uid],
+        |row| {
+            let gender_pref_text: Option<String> = row.get(1).ok();
+            let year_pref_text: Option<String> = row.get(4).ok();
+            let major_pref_text: Option<String> = row.get(5).ok();
+            let gender_preference = gender_pref_text.and_then(|txt| serde_json::from_str(&txt).ok());
+            let year_preference = year_pref_text.and_then(|txt| serde_json::from_str(&txt).ok());
+            let major_preference = major_pref_text.and_then(|txt| serde_json::from_str(&txt).ok());
+            let is_felon = row.get::<_, Option<i32>>(6).ok().flatten().map(|v| v != 0);
+            Ok(Preferences {
+                user_id: row.get(0)?,
+                gender_preference,
+                min_age: row.get(2).ok(),
+                max_age: row.get(3).ok(),
+                year_preference,
+                major_preference,
+                is_felon,
+            })
+        },
+    );
+    info!("User {} ({}) fetched preferences", uid, email);
+    match result {
+        Ok(prefs) => HttpResponse::Ok().json(prefs),
+        Err(rusqlite::Error::QueryReturnedNoRows) => HttpResponse::Ok().json(Preferences {
+            user_id: uid,
+            gender_preference: None,
+            min_age: None,
+            max_age: None,
+            year_preference: None,
+            major_preference: None,
+            is_felon: None,
+        }),
+        Err(_) => HttpResponse::InternalServerError().body("Database error"),
+    }
+}
+
+async fn put_preferences(
+    user_id: web::Path<i32>,
+    data: web::Json<PreferencesUpsert>,
+    state: web::Data<AppState>,
+) -> impl Responder {
+    let uid = user_id.into_inner();
+    let payload = data.into_inner();
+    let conn = state.db_conn.lock().unwrap();
+    let email: String = conn
+        .query_row(
+            "SELECT email FROM profiles WHERE user_id = ?1",
+            params![uid],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| "unknown".to_string());
+    let gender_pref_text = payload
+        .gender_preference
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap());
+    let year_pref_text = payload
+        .year_preference
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap());
+    let major_pref_text = payload
+        .major_preference
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap());
+    let is_felon_int = payload.is_felon.map(|b| if b { 1 } else { 0 });
+    let result = conn.execute(
+        "INSERT INTO preferences (user_id, gender_preference, min_age, max_age, year_preference, major_preference, is_felon)
+ VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+ ON CONFLICT(user_id) DO UPDATE SET
+ gender_preference = ?2, min_age = ?3, max_age = ?4, year_preference = ?5, major_preference = ?6, is_felon = ?7",
+        params![uid, gender_pref_text, payload.min_age, payload.max_age, year_pref_text, major_pref_text, is_felon_int],
+    );
+    info!("User {} ({}) set prefs {:?}", uid, email, payload);
+    match result {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({"success": true, "user_id": uid})),
+        Err(e) => HttpResponse::InternalServerError().body(format!("DB error: {}", e)),
+    }
+}
+
+fn rotate_backups() {
+    fs::create_dir_all("db_backups").ok();
+    let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
+    let backup_name = format!("db_{}.db", timestamp);
+    let backup_path = format!("db_backups/{}", backup_name);
+    if Path::new("test.db").exists() {
+        if let Err(e) = fs::copy("test.db", &backup_path) {
+            eprintln!("Failed to create DB backup: {}", e);
+        }
+    }
+    let mut backups: Vec<_> = fs::read_dir("db_backups")
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .collect();
+
+    backups.sort_by_key(|e| e.metadata().unwrap().modified().unwrap());
+    while backups.len() > 20 {
+        if let Some(oldest) = backups.first() {
+            let _ = fs::remove_file(oldest.path());
+        }
+        backups.remove(0);
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    rotate_backups();
     env_logger::init_from_env(Env::default().default_filter_or("info"));
     let conn = Connection::open("test.db").unwrap();
     conn.execute(
@@ -686,7 +1007,9 @@ async fn main() -> std::io::Result<()> {
             year TEXT,
             bio TEXT,
             interests TEXT,
-            profile_picture TEXT
+            profile_picture TEXT,
+            gender TEXT,
+            is_felon INTEGER
         )",
         params![],
     )
@@ -699,6 +1022,20 @@ async fn main() -> std::io::Result<()> {
             content TEXT NOT NULL,
             timestamp INTEGER NOT NULL
         )",
+        params![],
+    )
+    .unwrap();
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS preferences (
+        user_id INTEGER PRIMARY KEY,
+        gender_preference TEXT,
+        min_age INTEGER,
+        max_age INTEGER,
+        year_preference TEXT,
+        major_preference TEXT,
+        is_felon INTEGER,
+        FOREIGN KEY(user_id) REFERENCES profiles(user_id)
+    )",
         params![],
     )
     .unwrap();
@@ -737,6 +1074,9 @@ async fn main() -> std::io::Result<()> {
             .route("/messages/{a}/{b}", web::get().to(get_messages))
             .route("/ws/{user_id}", web::get().to(ws_index))
             .route("/delete_user", web::post().to(delete_user))
+            .route("/preferences/{user_id}", web::get().to(get_preferences))
+            .route("/preferences/{user_id}", web::put().to(put_preferences))
+            .route("/preference-options", web::get().to(get_preference_options))
     })
     .bind(("127.0.0.1", 8080))?
     .run()

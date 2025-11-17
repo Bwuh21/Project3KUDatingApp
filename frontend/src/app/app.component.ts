@@ -40,12 +40,12 @@ import { AuthService } from './services/auth.service';
             <ng-container *ngIf="!showRegister; else signupTpl">
               <form class="login-form" (ngSubmit)="login()">
                 <div class="form-group">
-                  <label for="username">Email</label>
+                  <label for="email">Email</label>
                   <input 
                     type="text" 
-                    id="username" 
-                    [(ngModel)]="loginForm.username" 
-                    name="username"
+                    id="email" 
+                    [(ngModel)]="loginForm.email" 
+                    name="email"
                     placeholder="Your email"
                     required
                   >
@@ -477,7 +477,7 @@ export class AppComponent {
   userId = 0;
 
   loginForm = {
-    username: '',
+    email: '',
     password: ''
   };
 
@@ -510,13 +510,13 @@ export class AppComponent {
   constructor(private profiles: ProfileService, private auth: AuthService) { }
 
   login() {
-    if (!this.loginForm.username || !this.loginForm.password) {
-      alert('Please enter username and password');
+    if (!this.loginForm.email || !this.loginForm.password) {
+      alert('Please enter email and password');
       return;
     }
 
     this.auth.login({
-      name: this.loginForm.username,
+      email: this.loginForm.email,
       password: this.loginForm.password
     }).subscribe({
       next: (response) => {
@@ -577,7 +577,7 @@ export class AppComponent {
     this.isAuthenticated = false;
     this.userId = 0;
     localStorage.removeItem('user_id');
-    this.loginForm = { username: '', password: '' };
+    this.loginForm = { email: '', password: '' };
   }
 
   setView(view: string) {
