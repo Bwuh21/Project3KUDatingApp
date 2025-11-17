@@ -61,7 +61,7 @@ import { Component } from '@angular/core';
     }
 
     .placeholder-content h2 {
-      color: #8b5cf6;
+      color: var(--primary);
       font-size: 2rem;
       margin: 0 0 1rem 0;
       text-align: center;
@@ -90,12 +90,12 @@ import { Component } from '@angular/core';
     }
 
     .point:hover {
-      border-color: #8b5cf6;
+      border-color: var(--primary);
       transform: translateY(-2px);
     }
 
     .point h3 {
-      color: #8b5cf6;
+      color: var(--primary);
       margin: 0 0 0.5rem 0;
       font-size: 1.2rem;
     }
@@ -116,7 +116,7 @@ import { Component } from '@angular/core';
     }
 
     .instructions {
-      background: linear-gradient(135deg, #8b5cf6, #a855f7);
+      background: linear-gradient(135deg, var(--primary), #1E66D0);
       color: white;
       padding: 2rem;
       border-radius: 15px;

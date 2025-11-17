@@ -21,9 +21,6 @@ import { AuthService } from './services/auth.service';
           <button class="nav-btn" [class.active]="currentView === 'profile'" (click)="setView('profile')">
             👤 Profile
           </button>
-          <button class="nav-btn" [class.active]="currentView === 'backend'" (click)="setView('backend')">
-            🔧 Backend
-          </button>
           <button class="btn btn-outline" (click)="logout()">Logout</button>
         </div>
       </nav>
@@ -147,13 +144,13 @@ import { AuthService } from './services/auth.service';
               <div class="coming-soon-content">
                 <h2>👤 Profile</h2>
                 <p>Create your profile to start matching</p>
-                <button class="btn btn-primary" (click)="openProfileForm()">Create Profile</button>
+                <button class="btn btn-primary" (click)="openProfileForm()">{{ hasProfile ? 'Edit Profile' : 'Create Profile' }}</button>
               </div>
             </div>
 
             <div *ngIf="showProfileForm" class="profile-form-card">
               <div class="coming-soon-content" style="text-align:left; max-width: 900px; margin: 0 auto;">
-                <h2 style="margin-bottom: 1rem;">Create Profile</h2>
+                <h2 style="margin-bottom: 1rem;">{{ hasProfile ? 'Edit Profile' : 'Create Profile' }}</h2>
 
                 <form (ngSubmit)="saveProfile()">
                   <div style="display:grid; grid-template-columns: 1fr 320px; gap: 2rem; align-items: start;">
@@ -234,7 +231,18 @@ import { AuthService } from './services/auth.service';
   styles: [`
     .app-container {
       min-height: 100vh;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      /* KU Theme variables */
+      --ku-blue: #0051BA;
+      --ku-crimson: #E8000D;
+      --ku-yellow: #FFD200;
+      --primary: var(--ku-blue);
+      --secondary: var(--ku-crimson);
+      --accent: var(--ku-yellow);
+      --blue-50: #f0f6ff;
+      --blue-100: #e6f0ff;
+      --blue-200: #c7ddff;
+
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
       display: flex;
       flex-direction: column;
     }
@@ -257,14 +265,14 @@ import { AuthService } from './services/auth.service';
     }
 
     .nav-brand h1 {
-      color: #8b5cf6;
+      color: var(--primary);
       font-size: 1.5rem;
       font-weight: 700;
       margin: 0;
     }
 
     .ku-badge {
-      background: linear-gradient(135deg, #8b5cf6, #a855f7);
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
       color: white;
       padding: 4px 8px;
       border-radius: 6px;
@@ -286,16 +294,16 @@ import { AuthService } from './services/auth.service';
       cursor: pointer;
       font-weight: 500;
       transition: all 0.3s ease;
-      color: #666;
+      color: #444;
     }
 
     .nav-btn:hover {
-      background: rgba(139, 92, 246, 0.1);
-      color: #8b5cf6;
+      background: rgba(0, 81, 186, 0.1);
+      color: var(--primary);
     }
 
     .nav-btn.active {
-      background: #8b5cf6;
+      background: var(--primary);
       color: white;
     }
 
@@ -326,7 +334,7 @@ import { AuthService } from './services/auth.service';
     }
 
     .login-header h1 {
-      color: #8b5cf6;
+      color: var(--primary);
       font-size: 2.5rem;
       margin: 0 0 0.5rem 0;
       font-weight: 700;
@@ -366,7 +374,7 @@ import { AuthService } from './services/auth.service';
 
     .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
       outline: none;
-      border-color: #8b5cf6;
+      border-color: var(--primary);
     }
 
     .btn {
@@ -382,23 +390,23 @@ import { AuthService } from './services/auth.service';
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, #8b5cf6, #a855f7);
+      background: linear-gradient(135deg, var(--primary), #1E66D0);
       color: white;
     }
 
     .btn-primary:hover {
       transform: translateY(-2px);
-      box-shadow: 0 10px 20px rgba(139, 92, 246, 0.3);
+      box-shadow: 0 10px 20px rgba(0, 81, 186, 0.3);
     }
 
     .btn-outline {
       background: transparent;
-      color: #8b5cf6;
-      border: 2px solid #8b5cf6;
+      color: var(--primary);
+      border: 2px solid var(--primary);
     }
 
     .btn-outline:hover {
-      background: #8b5cf6;
+      background: var(--primary);
       color: white;
     }
 
@@ -412,7 +420,7 @@ import { AuthService } from './services/auth.service';
     }
 
     .login-footer a {
-      color: #8b5cf6;
+      color: var(--primary);
       text-decoration: none;
       font-weight: 600;
     }
@@ -434,7 +442,7 @@ import { AuthService } from './services/auth.service';
     }
 
     .coming-soon-content h2 {
-      color: #8b5cf6;
+      color: var(--primary);
       font-size: 2rem;
       margin: 0 0 1rem 0;
     }
@@ -474,6 +482,7 @@ export class AppComponent {
   currentView = 'swipe';
   showRegister = false;
   showProfileForm = false;
+  hasProfile = false;
   userId = 0;
 
   loginForm = {
@@ -524,7 +533,7 @@ export class AppComponent {
           this.userId = response.user_id;
           localStorage.setItem('user_id', this.userId.toString());
           this.isAuthenticated = true;
-          this.currentView = 'swipe';
+          this.setView('swipe');
         } else {
           alert(response.message || 'Login failed');
         }
@@ -560,7 +569,7 @@ export class AppComponent {
           this.userId = Number(res.user_id || 0);
           localStorage.setItem('user_id', this.userId.toString());
           this.isAuthenticated = true;
-          this.currentView = 'profile';
+          this.setView('profile');
           this.showRegister = false;
         } else {
           alert(res.message || 'Registration failed.');
@@ -576,12 +585,31 @@ export class AppComponent {
   logout() {
     this.isAuthenticated = false;
     this.userId = 0;
+    this.hasProfile = false;
     localStorage.removeItem('user_id');
     this.loginForm = { email: '', password: '' };
   }
 
   setView(view: string) {
     this.currentView = view;
+    if (view === 'profile') {
+      this.refreshProfileStatus();
+    }
+  }
+
+  private refreshProfileStatus() {
+    if (!this.userId) {
+      this.hasProfile = false;
+      return;
+    }
+    this.profiles.getProfile(this.userId).subscribe({
+      next: (p) => {
+        this.hasProfile = !!p;
+      },
+      error: () => {
+        this.hasProfile = false;
+      }
+    });
   }
 
   openProfileForm() {
@@ -640,6 +668,7 @@ export class AppComponent {
         next: () => {
           alert('Profile saved successfully.');
           this.showProfileForm = false;
+          this.hasProfile = true;
         },
         error: () => {
           alert('Failed to save profile. Please try again.');

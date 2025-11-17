@@ -23,7 +23,10 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
             [class.active]="peerId === c.id"
             (click)="selectPeer(c.id)"
           >
-            <div class="avatar">{{ c.emoji }}</div>
+            <div class="avatar">
+              <img *ngIf="c.photoUrl; else emojiTpl" [src]="c.photoUrl" [alt]="c.name + ' photo'">
+              <ng-template #emojiTpl>{{ c.emoji }}</ng-template>
+            </div>
             <div class="meta">
               <div class="name">{{ c.name }}</div>
               <div class="preview">{{ lastMessage[c.id]?.content || 'Start a conversation' }}</div>
@@ -40,9 +43,9 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
               <span class="emoji">{{ activeContact?.emoji || '💬' }}</span>
               <h3>{{ activeContact?.name || 'Chat' }}</h3>
             </div>
-            <span class="status" [class.online]="connected" [class.offline]="!connected">
-              {{ connected ? 'Online' : 'Offline' }}
-            </span>
+            <div class="actions">
+              <button class="view-profile-btn" (click)="openPeerProfile()" [disabled]="!peerId">View Profile</button>
+            </div>
           </div>
 
           <div class="chat-body" #scrollContainer>
@@ -77,6 +80,54 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
               name="draft">
             <button type="submit" class="send-btn" [disabled]="!canSend()">Send</button>
           </form>
+
+          <div class="profile-panel-backdrop" *ngIf="showProfilePanel" (click)="closePeerProfile()"></div>
+          <div class="profile-panel" *ngIf="showProfilePanel">
+            <div class="panel-header">
+              <div class="panel-title">Profile</div>
+              <button class="panel-close" (click)="closePeerProfile()">✕</button>
+            </div>
+            <div class="panel-body" *ngIf="peerProfileLoading">Loading…</div>
+            <div class="panel-body" *ngIf="!peerProfileLoading && peerProfile">
+              <div class="profile-header">
+                <div class="profile-photo" *ngIf="peerProfilePhotoUrl">
+                  <img [src]="peerProfilePhotoUrl" alt="Profile photo">
+                </div>
+                <div class="profile-name">
+                  <h4>{{ peerProfile.name || ('User ' + peerProfile.user_id) }}</h4>
+                  <div class="profile-subtle" *ngIf="peerProfile.year || peerProfile.major">
+                    <span *ngIf="peerProfile.year">{{ peerProfile.year }}</span>
+                    <span *ngIf="peerProfile.year && peerProfile.major"> • </span>
+                    <span *ngIf="peerProfile.major">{{ peerProfile.major }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="details-grid">
+                <div class="detail" *ngIf="peerProfile.age != null">
+                  <div class="label">Age</div>
+                  <div class="value">{{ peerProfile.age }}</div>
+                </div>
+                <div class="detail" *ngIf="peerProfile.year">
+                  <div class="label">Year</div>
+                  <div class="value">{{ peerProfile.year }}</div>
+                </div>
+                <div class="detail" *ngIf="peerProfile.major">
+                  <div class="label">Major</div>
+                  <div class="value">{{ peerProfile.major }}</div>
+                </div>
+              </div>
+
+              <div class="bio" *ngIf="peerProfile.bio">
+                {{ peerProfile.bio }}
+              </div>
+
+              <div class="interests" *ngIf="peerProfile?.interests?.length">
+                <span class="chip" *ngFor="let tag of peerProfile?.interests">{{ tag }}</span>
+              </div>
+            </div>
+            <div class="panel-body error" *ngIf="!peerProfileLoading && peerProfileError">{{ peerProfileError }}</div>
+          </div>
         </div>
       </section>
     </div>
@@ -90,6 +141,8 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
       max-width: 1100px;
       margin: 0 auto;
     }
+    /* Allow inner grid children to shrink so the message pane can scroll */
+    .conversation { min-height: 0; }
     .sidebar {
       background: white;
       border-radius: 16px;
@@ -125,8 +178,9 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
       text-align: left;
     }
     .contact:hover { background: #f9fafb; }
-    .contact.active { background: #eef2ff; }
-    .avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: #f3f4f6; }
+    .contact.active { background: var(--blue-50); }
+    .avatar { width: 36px; height: 36px; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: #f3f4f6; }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .meta .name { font-weight: 600; color: #111827; }
     .meta .preview { font-size: 0.85rem; color: #6b7280; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .time { font-size: 0.75rem; color: #6b7280; }
@@ -138,6 +192,8 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
       display: grid;
       grid-template-rows: auto 1fr auto;
       height: 100%;
+      /* Critical for nested grid scroll */
+      min-height: 0;
     }
     .chat-header {
       display: flex;
@@ -153,8 +209,9 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
       display: flex; align-items: center; gap: 8px;
     }
     .title h3 {
-      margin: 0; color: #6d28d9;
+      margin: 0; color: var(--primary);
     }
+    .actions { display: flex; align-items: center; gap: 8px; }
     .ids {
       display: flex; align-items: center; gap: 12px;
     }
@@ -168,20 +225,71 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
       border: 2px solid #e5e7eb;
       border-radius: 8px;
     }
-    .status {
-      font-size: 0.8rem;
-      padding: 4px 8px;
-      border-radius: 999px;
-      background: #f3f4f6;
-      color: #6b7280;
+    .view-profile-btn {
+      padding: 8px 12px;
+      border: 2px solid #000000;
+      background: transparent;
+      color: #000000;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: all 0.2s ease;
     }
-    .status.online { background: #dcfce7; color: #166534; }
-    .status.offline { background: #fee2e2; color: #991b1b; }
+    .view-profile-btn:hover { background: #000000; color: #ffffff; }
+    .view-profile-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
     .chat-body {
       overflow-y: auto;
       padding: 16px;
       background: #f8fafc;
+      /* Ensure the scrolling area can actually shrink inside grid */
+      min-height: 0;
     }
+    .chat-shell { position: relative; }
+    .profile-panel-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.2);
+    }
+    .profile-panel {
+      position: absolute;
+      top: 56px;
+      right: 12px;
+      width: 320px;
+      max-height: calc(100% - 72px);
+      overflow: auto;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+      z-index: 1;
+    }
+    .panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 12px; border-bottom: 1px solid #eef2f7; background: #f9fafb; border-top-left-radius: 12px; border-top-right-radius: 12px;
+    }
+    .panel-title { font-weight: 700; color: #6d28d9; }
+    .panel-close { background: transparent; border: none; cursor: pointer; font-size: 16px; color: #6b7280; }
+    .panel-body { padding: 12px; }
+    .panel-body.error { color: #b91c1c; }
+    .profile-header { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .profile-photo { width: 96px; height: 96px; overflow: hidden; border-radius: 12px; background: #f3f4f6; display: grid; place-items: center; }
+    .profile-photo img { width: 100%; height: 100%; object-fit: cover; }
+    .profile-name h4 { margin: 0 0 4px 0; color: #111827; }
+    .profile-subtle { color: #6b7280; font-size: 0.9rem; }
+
+    .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+    .detail { background: #f9fafb; border: 1px solid #eef2f7; border-radius: 10px; padding: 8px 10px; }
+    .detail .label { font-size: 0.75rem; color: #6b7280; margin-bottom: 2px; }
+    .detail .value { font-weight: 600; color: #111827; }
+
+    .bio { background: #fff; border: 1px solid #eef2f7; border-radius: 10px; padding: 10px; color: #374151; margin-bottom: 12px; white-space: pre-wrap; }
+
+    .interests { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { background: var(--blue-50); color: var(--primary); border: 1px solid var(--blue-200); padding: 4px 8px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; }
     .empty-state .card {
       max-width: 520px; margin: 48px auto;
       background: white; border-radius: 12px; padding: 24px;
@@ -203,8 +311,8 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
       box-shadow: 0 2px 8px rgba(0,0,0,0.04);
     }
     .message.me .bubble {
-      background: #eef2ff;
-      border-color: #c7d2fe;
+      background: var(--blue-50);
+      border-color: var(--blue-200);
     }
     .content { color: #111827; white-space: pre-wrap; }
     .meta {
@@ -220,7 +328,7 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
     }
     .send-btn {
       padding: 0 18px; border: none; border-radius: 10px; cursor: pointer;
-      background: linear-gradient(135deg, #8b5cf6, #a855f7); color: white; font-weight: 600;
+      background: linear-gradient(135deg, var(--primary), #1E66D0); color: white; font-weight: 600;
     }
     .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   `]
@@ -233,9 +341,16 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
   messages: ChatMessage[] = [];
   draft = '';
 
+  // Profile panel state
+  showProfilePanel = false;
+  peerProfile: ProfileDto | null = null;
+  peerProfilePhotoUrl: string | null = null;
+  peerProfileLoading = false;
+  peerProfileError = '';
+
   private subs: Subscription[] = [];
 
-  contacts: Array<{ id: number; name: string; emoji: string }> = [];
+  contacts: Array<{ id: number; name: string; emoji: string; photoUrl?: string | null }> = [];
   lastMessage: { [id: number]: { content: string; timestamp: number } } = {};
 
   constructor(private chat: ChatService, private router: Router, private profiles: ProfileService) { }
@@ -249,11 +364,15 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     this.meId = parseInt(storedUserId, 10);
     this.profiles.getQueue(this.meId).subscribe({
       next: (profiles) => {
-        this.contacts = profiles.map(p => ({
-          id: p.user_id,
-          name: p.name || 'User ' + p.user_id,
-          emoji: this.getEmojiForUser(p)
-        }));
+        this.contacts = profiles.map(p => {
+          const photoUrl = p.profile_picture ? this.profiles.profilePictureUrl(p.user_id) : null;
+          return {
+            id: p.user_id,
+            name: p.name || 'User ' + p.user_id,
+            emoji: this.getEmojiForUser(p),
+            photoUrl
+          };
+        });
         if (this.contacts.length) {
           this.selectPeer(this.contacts[0].id);
         }
@@ -305,6 +424,9 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     if (this.peerId === id) return;
     this.peerId = id;
     this.loadHistory();
+    if (this.showProfilePanel) {
+      this.openPeerProfile(); // refresh panel to new peer if open
+    }
   }
 
   loadHistory(): void {
@@ -320,6 +442,34 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
       }
       this.scrollToBottomSoon();
     });
+  }
+
+  openPeerProfile(): void {
+    if (!this.peerId) { return; }
+    this.showProfilePanel = true;
+    this.peerProfileLoading = true;
+    this.peerProfileError = '';
+    this.peerProfile = null;
+    this.peerProfilePhotoUrl = null;
+    this.profiles.getProfile(this.peerId).subscribe({
+      next: (p) => {
+        this.peerProfile = p;
+        if (p && p.profile_picture) {
+          this.peerProfilePhotoUrl = this.profiles.profilePictureUrl(p.user_id);
+        } else {
+          this.peerProfilePhotoUrl = null;
+        }
+        this.peerProfileLoading = false;
+      },
+      error: () => {
+        this.peerProfileLoading = false;
+        this.peerProfileError = 'Failed to load profile.';
+      }
+    });
+  }
+
+  closePeerProfile(): void {
+    this.showProfilePanel = false;
   }
 
   canSend(): boolean {

@@ -208,7 +208,7 @@ interface Profile {
     }
 
     .interests h4 {
-      color: #8b5cf6;
+      color: var(--primary);
       margin: 0 0 1rem 0;
       font-size: 1rem;
     }
@@ -319,7 +319,7 @@ interface Profile {
     }
 
     .no-profiles-content h3 {
-      color: #8b5cf6;
+      color: var(--primary);
       font-size: 1.5rem;
       margin: 0 0 1rem 0;
     }
@@ -365,13 +365,13 @@ interface Profile {
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, #8b5cf6, #a855f7);
+      background: linear-gradient(135deg, var(--primary), #1E66D0);
       color: white;
     }
 
     .btn-primary:hover {
       transform: translateY(-2px);
-      box-shadow: 0 10px 20px rgba(139, 92, 246, 0.3);
+      box-shadow: 0 10px 20px rgba(0, 81, 186, 0.3);
     }
   `]
 })
