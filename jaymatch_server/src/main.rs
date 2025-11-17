@@ -592,15 +592,21 @@ async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl 
         Ok(s) => s,
         Err(_) => return HttpResponse::InternalServerError().body("Database error"),
     };
-
+    let requesting_user_email: Option<String> = conn
+        .query_row(
+            "SELECT email FROM profiles WHERE user_id = ?1",
+            params![uid],
+            |row| row.get(0),
+        )
+        .ok();
     let rows = stmt.query_map(params![uid], |row| Ok(row_to_profile(row)));
-
     match rows {
         Ok(profiles) => {
             let profile_list: Vec<Profile> = profiles.filter_map(|r| r.ok()).collect();
             info!(
-                "User {} requested queue, returning {} profiles",
+                "User {} email {} requested queue, returning {} profiles",
                 uid,
+                requesting_user_email.unwrap_or_else(|| "unknown".to_string()),
                 profile_list.len()
             );
             HttpResponse::Ok().json(profile_list)
