@@ -1,8 +1,19 @@
+/*
+Name: chat_service.ts
+Description: Javascript for authenticating against the server
+Programmer: Maren, Ibrahim, Zack
+Dates: 11/23/2025
+Revision: 1
+Pre/Post Conditions: interacts with the chat window and the backend. Allows users to send messages and retrieve messages from server tables
+Errors: None
+*/
+
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, Observable, Subject, timer } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 
+//define structure for holding a chat message
 export interface ChatMessage {
   id?: number;
   sender_id: number;
@@ -11,11 +22,13 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+//define websocket envelope
 interface WsEnvelope {
   type: 'message' | 'system' | 'pong';
   payload: any;
 }
 
+//define chat service component with web socket metadata
 @Injectable({ providedIn: 'root' })
 export class ChatService {
   private readonly httpBase = 'https://api.jaymatch.cc';
@@ -27,6 +40,8 @@ export class ChatService {
 
   constructor(private http: HttpClient) { }
 
+  //function for connecting to the websocket
+  //should keep the websocket alive and handle graceful disconnects
   connect(userId: number): void {
     if (this.websocket && this.isConnected$.value && this.meId === userId) {
       return;
@@ -66,6 +81,7 @@ export class ChatService {
     };
   }
 
+  //function for disconnecting to the chat webservicve
   disconnect(): void {
     if (this.websocket) {
       try {
@@ -76,18 +92,22 @@ export class ChatService {
     this.isConnected$.next(false);
   }
 
+  //check if is connected
   isConnected(): Observable<boolean> {
     return this.isConnected$.asObservable();
   }
 
+  //retrieve incoming messages
   incomingMessages(): Observable<ChatMessage> {
     return this.incoming$.asObservable();
   }
 
+  //get system messages
   systemMessages(): Observable<string> {
     return this.system$.asObservable();
   }
 
+  //get message history from server
   fetchHistory(a: number, b: number, limit = 100): Observable<ChatMessage[]> {
     return this.http.get<ChatMessage[]>(`${this.httpBase}/messages/${a}/${b}?limit=${limit}`).pipe(
       map(list =>
@@ -98,6 +118,7 @@ export class ChatService {
     );
   }
 
+  //send a text message to server
   sendText(senderId: number, receiverId: number, content: string): Observable<{ success: boolean; timestamp: number }> {
     return this.http.post<{ success: boolean; timestamp: number }>(`${this.httpBase}/messages`, {
       sender_id: senderId,
@@ -106,12 +127,14 @@ export class ChatService {
     });
   }
 
+  //stream peers
   streamForPeer(peerId: number): Observable<ChatMessage> {
     return this.incoming$.pipe(
       filter(m => this.meId != null && (m.sender_id === peerId || m.receiver_id === peerId))
     );
   }
 
+  //forward the web socket
   private sendWs(payload: any) {
     if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
       this.websocket.send(JSON.stringify(payload));

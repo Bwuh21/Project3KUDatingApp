@@ -1,3 +1,13 @@
+/*
+Name: app.module.ts
+Description: Setup angular module code
+Programmer: Maren, Ibrahim, Zack
+Dates: 11/23/2025
+Revision: 1
+Pre/Post Conditions: handle angular module config
+Errors: None
+*/
+
 import { NgModule } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';

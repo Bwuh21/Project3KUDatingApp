@@ -1,7 +1,7 @@
 /*
 Name: JayMatch server
 Description: A server for handling the JayMatch website and communicate with the database
-Programmer: Maren Proplesch, Nick Greico, and assisted by gemini copilot.
+Programmer: Maren Proplesch and Nick Greico
 Dates: 10/26/2025
 Revision: 2 (adds messaging DB, HTTP endpoints, and WebSocket realtime delivery)
 Pre/Post Conditions: The server should be running and able to handle requests from the frontend. It should create a backend database with basic tables. It should remain online always.
@@ -26,6 +26,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 
+//datastructure to hold and seriaze profile data
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Profile {
     user_id: i32,
@@ -41,6 +42,7 @@ struct Profile {
     is_felon: Option<bool>,
 }
 
+//structure to provide profile data to client
 #[derive(Serialize, Deserialize, Debug)]
 struct ProfileUpsert {
     name: Option<String>,
@@ -53,6 +55,7 @@ struct ProfileUpsert {
     gender: Option<String>,
 }
 
+//strucutre to hold user data
 #[derive(Serialize, Deserialize)]
 struct User {
     id: Option<i32>,
@@ -60,6 +63,8 @@ struct User {
     password: String,
 }
 
+
+//structure for creating a new user
 #[derive(Serialize, Deserialize)]
 struct NewUser {
     name: String,
@@ -67,6 +72,7 @@ struct NewUser {
     email: String,
 }
 
+//structure for sending and recieving message
 #[derive(Serialize, Deserialize, Debug)]
 struct Message {
     id: Option<i64>,
@@ -76,6 +82,8 @@ struct Message {
     timestamp: i64,
 }
 
+
+//message header data
 #[derive(Deserialize)]
 struct MessagePost {
     sender_id: i32,
@@ -83,10 +91,12 @@ struct MessagePost {
     content: String,
 }
 
+//websocket structure
 #[derive(Message)]
 #[rtype(result = "()")]
 struct WsMessage(pub String);
 
+//structure to hold app sate
 struct AppState {
     db_conn: Mutex<Connection>,
     clients: Mutex<HashMap<i32, Recipient<WsMessage>>>,
@@ -101,10 +111,16 @@ impl AppState {
     }
 }
 
+
+// api.jaymatch.cc/health
+//checks to see if the backend is active
 async fn health() -> impl Responder {
     HttpResponse::Ok().body("Backend active")
 }
 
+//api endpoint for creating a new user
+//expects serialized json in the form of NewUser
+//stores user in profiles sqlite table
 async fn create_new_user(data: web::Json<NewUser>, state: web::Data<AppState>) -> impl Responder {
     // Enforce KU email domain
     let email_ok = data.email.to_lowercase().ends_with("@ku.edu");
@@ -137,17 +153,18 @@ async fn create_new_user(data: web::Json<NewUser>, state: web::Data<AppState>) -
     }))
 }
 
+//api endpoint to update a profile picture
+//stores the profile picture in uploads directory
+//stores file metadata in the profile_pictures table
 async fn update_profile_picture(
     mut payload: Multipart,
     state: web::Data<AppState>,
 ) -> impl Responder {
     let mut user_id: Option<i32> = None;
     let mut file_path: Option<String> = None;
-
     fs::create_dir_all("uploads/profile_pictures").unwrap_or_else(|e| {
         warn!("Error creating directory: {}", e);
     });
-
     while let Some(item) = payload.next().await {
         let mut field = item.unwrap();
         let content_disposition = field.content_disposition();
@@ -197,6 +214,9 @@ async fn update_profile_picture(
     }
 }
 
+//api for logging in
+//expects user info serialized json 
+//returns return code indicating login status
 async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let mut stmt =
@@ -252,6 +272,9 @@ async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Respon
     }
 }
 
+//api for retrieving a profile picture
+//expects user id
+//returns profile picture from the profile_pictures table and the uploads directory
 async fn get_profile_picture(
     user_id: web::Path<i32>,
     state: web::Data<AppState>,
@@ -284,6 +307,8 @@ async fn get_profile_picture(
     }
 }
 
+//returns a basic html page when accessing the backend
+//used for debuggina and checking if backend is active
 async fn index() -> impl Responder {
     let html = r#"
     <html>
@@ -324,6 +349,10 @@ async fn index() -> impl Responder {
         .body(html)
 }
 
+//api for sending a message from one user to another
+//opens a websocket with the client
+//updates messages table
+//alerts recipient of the message
 async fn post_message(data: web::Json<MessagePost>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let (lower_id, higher_id) = if data.sender_id < data.receiver_id {
@@ -381,6 +410,8 @@ async fn post_message(data: web::Json<MessagePost>, state: web::Data<AppState>) 
     }
 }
 
+//api for recieving messages
+//loads all messages from sqlite for a given user
 async fn get_messages(
     path: web::Path<(i32, i32)>,
     query: web::Query<HashMap<String, String>>,
@@ -420,6 +451,8 @@ async fn get_messages(
     HttpResponse::Ok().json(msgs)
 }
 
+//helper function for converting to profile data
+//useful in datamigrations
 fn row_to_profile(row: &rusqlite::Row) -> Profile {
     let interests_text: Option<String> = row.get(8).ok();
     let interests: Option<Vec<String>> = interests_text.as_ref().and_then(|txt| {
@@ -447,6 +480,9 @@ fn row_to_profile(row: &rusqlite::Row) -> Profile {
     }
 }
 
+//api for recieving all profile information for a user
+//queries all relevant tables to get and format data
+//returns serialized user data
 async fn get_profile(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
@@ -467,6 +503,9 @@ async fn get_profile(user_id: web::Path<i32>, state: web::Data<AppState>) -> imp
     }
 }
 
+//api for setting a user profile
+//recieves a user ID and a ProfileUpsert datastructure
+//updates sqlite tables with new data
 async fn put_profile(
     user_id: web::Path<i32>,
     data: web::Json<ProfileUpsert>,
@@ -608,6 +647,8 @@ async fn put_profile(
     }
 }
 
+//api for helping the frontend to know what profile filters exist
+//returns a string list of all current filters
 async fn get_preference_options() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "gender_options": ["Male", "Female", "Other"],
@@ -625,11 +666,13 @@ async fn get_preference_options() -> impl Responder {
     }))
 }
 
+//structure for creating a websocket
 struct MyWs {
     user_id: i32,
     state: web::Data<AppState>,
 }
 
+//websocket actor functionality
 impl Actor for MyWs {
     type Context = ws::WebsocketContext<Self>;
 
@@ -652,6 +695,7 @@ impl Actor for MyWs {
     }
 }
 
+//how does the websocket handle messages
 impl Handler<WsMessage> for MyWs {
     type Result = ();
 
@@ -660,6 +704,7 @@ impl Handler<WsMessage> for MyWs {
     }
 }
 
+//how does the websocket handle streams
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWs {
     fn handle(
         &mut self,
@@ -688,6 +733,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWs {
     }
 }
 
+//function for initiating the websocket
 async fn ws_index(
     req: HttpRequest,
     stream: web::Payload,
@@ -702,6 +748,9 @@ async fn ws_index(
     ws::start(ws, &req, stream)
 }
 
+//api endpoint to retrieve a filtered list of potential matches
+//queries tables for all other user profiles that math the stored filters
+//returns the serialized data
 async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
@@ -818,12 +867,14 @@ async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl 
     }
 }
 
+//structure for a profile deletion request
 #[derive(Deserialize)]
 struct DeleteRequest {
     email: String,
     password: String,
 }
 
+//strucutre for holding preferences
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Preferences {
     user_id: i32,
@@ -835,6 +886,7 @@ struct Preferences {
     is_felon: Option<bool>,
 }
 
+//structure to be sent between client and server for preferences
 #[derive(Deserialize, Debug)]
 struct PreferencesUpsert {
     gender_preference: Option<Vec<String>>,
@@ -845,6 +897,7 @@ struct PreferencesUpsert {
     is_felon: Option<bool>,
 }
 
+//structure to hold match
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Match {
     user_id: i32,
@@ -852,12 +905,16 @@ struct Match {
     timestamp: i64,
 }
 
+//structure for match requests
 #[derive(Deserialize)]
 struct MatchRequest {
     user_id: i32,
     matched_user_id: i32,
 }
 
+//api for deleting a user
+//requires user password or admin password
+//reletes all table related data for user
 async fn delete_user(data: web::Json<DeleteRequest>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let mut stmt = match conn.prepare("SELECT user_id, password FROM profiles WHERE email = ?1") {
@@ -905,6 +962,8 @@ async fn delete_user(data: web::Json<DeleteRequest>, state: web::Data<AppState>)
     }))
 }
 
+//api for retrieving user preferences
+//takes in a user id and returns the strucutred preference data
 async fn get_preferences(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
@@ -953,6 +1012,9 @@ async fn get_preferences(user_id: web::Path<i32>, state: web::Data<AppState>) ->
     }
 }
 
+//api for setting preferences
+//takes in user id and structured preference update data
+//updates the preferences table
 async fn put_preferences(
     user_id: web::Path<i32>,
     data: web::Json<PreferencesUpsert>,
@@ -995,6 +1057,8 @@ async fn put_preferences(
     }
 }
 
+//function for creating a match between two users
+//updates the matches table
 async fn create_match(data: web::Json<MatchRequest>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let ts = Utc::now().timestamp_millis();
@@ -1032,6 +1096,8 @@ async fn create_match(data: web::Json<MatchRequest>, state: web::Data<AppState>)
     }
 }
 
+//endpoint for unmatching
+//updates matches table
 async fn delete_match(data: web::Json<MatchRequest>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let (lower_id, higher_id) = if data.user_id < data.matched_user_id {
@@ -1057,6 +1123,8 @@ async fn delete_match(data: web::Json<MatchRequest>, state: web::Data<AppState>)
     }
 }
 
+//endpoint for retrieving matches for a given user
+//queries the matches table 
 async fn get_matches(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
@@ -1079,6 +1147,10 @@ async fn get_matches(user_id: web::Path<i32>, state: web::Data<AppState>) -> imp
     HttpResponse::Ok().json(matches)
 }
 
+//function for rotating database backups
+//create a backups directory
+//store the last N backups and rotate them
+//delete old ones
 fn rotate_backups() {
     fs::create_dir_all("db_backups").ok();
     let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
@@ -1104,11 +1176,16 @@ fn rotate_backups() {
     }
 }
 
+//main function to build the server
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    //update backkuos
     rotate_backups();
+    //enable logging
     env_logger::init_from_env(Env::default().default_filter_or("info"));
+    //create database
     let conn = Connection::open("test.db").unwrap();
+    //create matches table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS matches (
             user_id INTEGER NOT NULL,
@@ -1121,6 +1198,7 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
+    //create profiles table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS profiles (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1139,6 +1217,7 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
+    //create messages table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY,
@@ -1150,6 +1229,7 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
+    //create preferences table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS preferences (
         user_id INTEGER PRIMARY KEY,
@@ -1164,6 +1244,8 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
+    //build app
+    //add all endpoints with the correct http protocols
     let state = web::Data::new(AppState::new(conn));
     HttpServer::new(move || {
         App::new()
@@ -1206,7 +1288,7 @@ async fn main() -> std::io::Result<()> {
             .route("/matches", web::delete().to(delete_match))
             .route("/matches/{user_id}", web::get().to(get_matches))
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("127.0.0.1", 8080))? //run server at localhost port 8080 and wait for cloudflare tunnel to activate
     .run()
     .await
 }

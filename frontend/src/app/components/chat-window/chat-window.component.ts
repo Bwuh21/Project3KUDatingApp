@@ -1,9 +1,22 @@
+/*
+Name: chat-window.component.ts
+Description: HTML and Javascript for creating and interacting with a chat window
+Programmer: Maren, Ibrahim, Zack
+Dates: 11/23/2025
+Revision: 2 (fix frontend bugs)
+Pre/Post Conditions: Website should display proper chat window. Chat should correctly interact with backend
+Errors: None
+*/
+
 import { Component, OnDestroy, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
 import { ChatMessage, ChatService } from '../../services/chat.service';
 import { ProfileService, ProfileDto } from '../../services/profile.service';
 
+//define component for the chat window
+//define all inline html for displaying it
+//html assited by gemini AI
 @Component({
   selector: 'app-chat-window',
   template: `
@@ -333,6 +346,9 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
     .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   `]
 })
+
+//define methods for initiating and deleting the chat window component
+//store relevant data like is connected, ids, and messages
 export class ChatWindowComponent implements OnInit, OnDestroy {
   @ViewChild('scrollContainer') scrollContainer!: ElementRef<HTMLDivElement>;
   meId: number = 0;

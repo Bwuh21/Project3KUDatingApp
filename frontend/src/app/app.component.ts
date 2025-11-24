@@ -1,7 +1,19 @@
+/*
+Name: app.component.ts
+Description: main angular file, incorporate all components and setup main html + css
+Programmer: Maren, Ibrahim, Zack
+Dates: 11/23/2025
+Revision: 1
+Pre/Post Should start all of the component services, should create html and should not have any console errors
+Errors: None
+*/
+
 import { Component } from '@angular/core';
 import { ProfileService, ProfileUpsertDto } from './services/profile.service';
 import { AuthService } from './services/auth.service';
 
+//generate all start page html
+//html partially assited by gemini.ai
 @Component({
   selector: 'app-root',
   template: `
@@ -477,6 +489,8 @@ import { AuthService } from './services/auth.service';
     }
   `]
 })
+
+//define main app service
 export class AppComponent {
   isAuthenticated = false;
   currentView = 'swipe';
@@ -518,6 +532,7 @@ export class AppComponent {
 
   constructor(private profiles: ProfileService, private auth: AuthService) { }
 
+  //define login page
   login() {
     if (!this.loginForm.email || !this.loginForm.password) {
       alert('Please enter email and password');
@@ -545,6 +560,7 @@ export class AppComponent {
     });
   }
 
+  //setup account registration service
   register() {
     const email = (this.registerForm.email || '').toLowerCase().trim();
     if (!email.endsWith('@ku.edu')) {
@@ -582,6 +598,7 @@ export class AppComponent {
     });
   }
 
+  //setup account logout button
   logout() {
     this.isAuthenticated = false;
     this.userId = 0;
@@ -597,6 +614,7 @@ export class AppComponent {
     }
   }
 
+  //setup service to refresh profile status
   private refreshProfileStatus() {
     if (!this.userId) {
       this.hasProfile = false;
@@ -612,6 +630,7 @@ export class AppComponent {
     });
   }
 
+  //setup html connections for opening the profile form
   openProfileForm() {
     this.profileForm = {
       name: '',
@@ -644,10 +663,12 @@ export class AppComponent {
     });
   }
 
+  //exit profile form
   cancelProfileForm() {
     this.showProfileForm = false;
   }
 
+  //setup button for saving profile
   saveProfile() {
     const interests = this.profileForm.interestsCsv
       .split(',')
@@ -689,6 +710,7 @@ export class AppComponent {
     }
   }
 
+  //setup service to handle selecting a photo to use as a profile picture
   onPhotoSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     const file = input.files && input.files[0];
@@ -709,6 +731,7 @@ export class AppComponent {
     reader.readAsDataURL(file);
   }
 
+  //remove profile photo
   removePhoto() {
     this.profilePhotoDataUrl = null;
     this.profilePhotoFile = null;

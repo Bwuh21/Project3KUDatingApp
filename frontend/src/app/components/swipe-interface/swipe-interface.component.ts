@@ -1,6 +1,18 @@
+/*
+Name: swipe-interface.component.ts
+Description: HTML and Javascript for swiping and creating matches
+Programmer: Maren, Ibrahim, Zack
+Dates: 11/23/2025
+Revision: 2 (fix frontend bugs)
+Pre/Post Conditions: Enable clean html for transitions for swiping left and right on profiles to indicate matches
+Errors: None
+*/
+
 import { Component, OnInit } from '@angular/core';
 import { ProfileService, ProfileDto } from '../../services/profile.service';
 
+
+//define an interface for storing profile data
 interface Profile {
   id: number;
   name: string;
@@ -12,6 +24,10 @@ interface Profile {
   image: string;
 }
 
+
+//define component with inlined html
+//component displays the swiping cards and defines elegant 
+//html assisted by gemini ai
 @Component({
   selector: 'app-swipe-interface',
   template: `
@@ -375,6 +391,8 @@ interface Profile {
     }
   `]
 })
+
+//define interface for swiping profiles
 export class SwipeInterfaceComponent implements OnInit {
   profiles: Profile[] = [];
   currentIndex = 0;
@@ -395,10 +413,13 @@ export class SwipeInterfaceComponent implements OnInit {
 
   constructor(private profileService: ProfileService) { }
 
+  //on init load queue
   ngOnInit() {
     this.loadQueue();
   }
 
+
+  //load queues using backend
   loadQueue() {
     const userId = Number(localStorage.getItem('user_id') || 0);
     if (!userId) {
@@ -421,6 +442,7 @@ export class SwipeInterfaceComponent implements OnInit {
     });
   }
 
+  //restructure serialized profile data
   convertToProfile(dto: ProfileDto): Profile {
     return {
       id: dto.user_id,
@@ -436,12 +458,14 @@ export class SwipeInterfaceComponent implements OnInit {
     };
   }
 
+  //on start init start x and y
   onTouchStart(event: TouchEvent) {
     this.startX = event.touches[0].clientX;
     this.startY = event.touches[0].clientY;
     this.isDragging = true;
   }
 
+  //drag on move
   onTouchMove(event: TouchEvent) {
     if (!this.isDragging) return;
 
@@ -450,6 +474,8 @@ export class SwipeInterfaceComponent implements OnInit {
     this.updateCardTransform();
   }
 
+
+  //unselect when leaving swiping 
   onTouchEnd(event: TouchEvent) {
     if (!this.isDragging) return;
 
@@ -457,6 +483,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.handleSwipeEnd();
   }
 
+  //enabel swiping with mouse down
   onMouseDown(event: MouseEvent) {
     this.startX = event.clientX;
     this.startY = event.clientY;
@@ -464,6 +491,8 @@ export class SwipeInterfaceComponent implements OnInit {
     event.preventDefault();
   }
 
+
+  //swipe with mouse move
   onMouseMove(event: MouseEvent) {
     if (!this.isDragging) return;
 
@@ -472,6 +501,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.updateCardTransform();
   }
 
+  //mouse up
   onMouseUp(event: MouseEvent) {
     if (!this.isDragging) return;
 
@@ -479,6 +509,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.handleSwipeEnd();
   }
 
+  //move card
   updateCardTransform() {
     const deltaX = this.currentX - this.startX;
     const deltaY = this.currentY - this.startY;
@@ -498,6 +529,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.cardOpacity = Math.max(0.3, 1 - distance / 300);
   }
 
+  //leave swiping
   handleSwipeEnd() {
     const deltaX = this.currentX - this.startX;
 
@@ -515,6 +547,7 @@ export class SwipeInterfaceComponent implements OnInit {
     }
   }
 
+  //swipe right
   swipeRight() {
     if (!this.currentProfile) return;
 
@@ -522,6 +555,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.nextProfile();
   }
 
+  //swipe left
   swipeLeft() {
     if (!this.currentProfile) return;
 
@@ -529,6 +563,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.nextProfile();
   }
 
+  //go to next profile
   nextProfile() {
     this.currentIndex++;
     this.currentProfile = this.profiles[this.currentIndex] || null;
