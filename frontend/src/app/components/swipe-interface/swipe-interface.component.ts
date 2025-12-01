@@ -131,6 +131,9 @@ interface Profile {
         <div class="filters" *ngIf="preferenceOptions">
           <div class="filters-header">
             <span>Filters</span>
+            <button class="filters-apply" (click)="applyFilters()" [disabled]="filtersSaving">
+              {{ filtersSaving ? 'Saving…' : 'Apply' }}
+            </button>
           </div>
 
           <div class="filters-grid">
@@ -446,6 +449,21 @@ interface Profile {
       color: #111827;
     }
 
+    .filters-apply {
+      border: none;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      background: var(--primary);
+      color: white;
+    }
+
+    .filters-apply:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+
     .filters-grid {
       display: grid;
       grid-template-columns: 1fr;
@@ -662,10 +680,26 @@ export class SwipeInterfaceComponent implements OnInit {
     if (!userId) {
       return;
     }
+
+    // Normalize age inputs so we never send NaN or inverted ranges
+    let minAge: number | null = this.minAge;
+    let maxAge: number | null = this.maxAge;
+    if (minAge != null && !Number.isFinite(minAge)) {
+      minAge = null;
+    }
+    if (maxAge != null && !Number.isFinite(maxAge)) {
+      maxAge = null;
+    }
+    if (minAge != null && maxAge != null && minAge > maxAge) {
+      const tmp = minAge;
+      minAge = maxAge;
+      maxAge = tmp;
+    }
+
     const payload: PreferencesUpsertDto = {
       gender_preference: this.selectedGenders.length ? this.selectedGenders : null,
-      min_age: this.minAge ?? null,
-      max_age: this.maxAge ?? null,
+      min_age: minAge,
+      max_age: maxAge,
       year_preference: this.selectedYears.length ? this.selectedYears : null
     };
     this.filtersSaving = true;
@@ -694,7 +728,8 @@ export class SwipeInterfaceComponent implements OnInit {
       image: dto.profile_picture
         ? this.profileService.profilePictureUrl(dto.user_id)
         : '',
-      gender: dto.gender || 'Other'
+      // keep gender empty string if not set so filters only match real values
+      gender: dto.gender || ''
     };
   }
 
@@ -705,8 +740,6 @@ export class SwipeInterfaceComponent implements OnInit {
     } else {
       list.push(value);
     }
-    // Immediately apply filters when a chip is toggled
-    this.applyFilters();
   }
 
   //on start init start x and y
