@@ -63,7 +63,6 @@ struct User {
     password: String,
 }
 
-
 //structure for creating a new user
 #[derive(Serialize, Deserialize)]
 struct NewUser {
@@ -81,7 +80,6 @@ struct Message {
     content: String,
     timestamp: i64,
 }
-
 
 //message header data
 #[derive(Deserialize)]
@@ -110,7 +108,6 @@ impl AppState {
         }
     }
 }
-
 
 // api.jaymatch.cc/health
 //checks to see if the backend is active
@@ -215,7 +212,7 @@ async fn update_profile_picture(
 }
 
 //api for logging in
-//expects user info serialized json 
+//expects user info serialized json
 //returns return code indicating login status
 async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
@@ -514,16 +511,16 @@ async fn put_profile(
     let uid = user_id.into_inner();
     let payload = data.into_inner();
     const VALID_GENDERS: &[&str] = &["male", "female", "other"];
-    const VALID_YEARS: &[&str] = &["freshman", "sophomore", "junior", "senior", "graduate"];
-    const VALID_MAJORS: &[&str] = &[
-        "computer science",
-        "information technology",
-        "electrical engineering",
-        "mechanical engineering",
-        "business",
-        "biology",
-        "psychology",
-    ];
+    // const VALID_YEARS: &[&str] = &["freshman", "sophomore", "junior", "senior"];
+    // const VALID_MAJORS: &[&str] = &[
+    //     "computer science",
+    //     "information technology",
+    //     "electrical engineering",
+    //     "mechanical engineering",
+    //     "business",
+    //     "biology",
+    //     "psychology",
+    // ];
     if let Some(ref g) = payload.gender {
         let norm = g.to_ascii_lowercase();
         if !VALID_GENDERS.contains(&norm.as_str()) {
@@ -533,24 +530,24 @@ async fn put_profile(
             }));
         }
     }
-    if let Some(ref y) = payload.year {
-        let norm = y.to_ascii_lowercase();
-        if !VALID_YEARS.contains(&norm.as_str()) {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "success": false,
-                "message": "Invalid year. Allowed: Freshman, Sophomore, Junior, Senior, Graduate"
-            }));
-        }
-    }
-    if let Some(ref m) = payload.major {
-        let norm = m.to_ascii_lowercase();
-        if !VALID_MAJORS.contains(&norm.as_str()) {
-            return HttpResponse::BadRequest().json(serde_json::json!({
-                "success": false,
-                "message": "Invalid major."
-            }));
-        }
-    }
+    // if let Some(ref y) = payload.year {
+    //     let norm = y.to_ascii_lowercase();
+    //     if !VALID_YEARS.contains(&norm.as_str()) {
+    //         return HttpResponse::BadRequest().json(serde_json::json!({
+    //             "success": false,
+    //             "message": "Invalid year. Allowed: Freshman, Sophomore, Junior, Senior"
+    //         }));
+    //     }
+    // }
+    // if let Some(ref m) = payload.major {
+    // let norm = m.to_ascii_lowercase();
+    // if !VALID_MAJORS.contains(&norm.as_str()) {
+    // return HttpResponse::BadRequest().json(serde_json::json!({
+    //     "success": false,
+    //     "message": "Invalid major."
+    // }));
+    // }
+    // }
     let conn = state.db_conn.lock().unwrap();
     let current: Option<Profile> = {
         let stmt = conn
@@ -570,39 +567,39 @@ async fn put_profile(
         .name
         .or_else(|| current.as_ref().and_then(|c| c.name.clone()));
     let merged_age = payload.age.or_else(|| current.as_ref().and_then(|c| c.age));
-    let validated_major = if let Some(m) = &payload.major {
-        let norm = m.to_ascii_lowercase();
-        Some(
-            VALID_MAJORS
-                .iter()
-                .find(|x| x.eq_ignore_ascii_case(&norm))
-                .unwrap()
-                .to_string()
-                .split_whitespace()
-                .map(|w| {
-                    let mut c = w.chars();
-                    c.next()
-                        .map(|f| f.to_ascii_uppercase().to_string())
-                        .unwrap_or_default()
-                        + c.as_str()
-                })
-                .collect::<Vec<String>>()
-                .join(" "),
-        )
-    } else {
-        current.as_ref().and_then(|c| c.major.clone())
-    };
-    let validated_year = if let Some(y) = &payload.year {
-        match y.to_ascii_lowercase().as_str() {
-            "freshman" => Some("Freshman".to_string()),
-            "sophomore" => Some("Sophomore".to_string()),
-            "junior" => Some("Junior".to_string()),
-            "senior" => Some("Senior".to_string()),
-            _ => unreachable!(),
-        }
-    } else {
-        current.as_ref().and_then(|c| c.year.clone())
-    };
+    // let validated_major = if let Some(m) = &payload.major {
+    //     let norm = m.to_ascii_lowercase();
+    //     Some(
+    //         VALID_MAJORS
+    //             .iter()
+    //             .find(|x| x.eq_ignore_ascii_case(&norm))
+    //             .unwrap()
+    //             .to_string()
+    //             .split_whitespace()
+    //             .map(|w| {
+    //                 let mut c = w.chars();
+    //                 c.next()
+    //                     .map(|f| f.to_ascii_uppercase().to_string())
+    //                     .unwrap_or_default()
+    //                     + c.as_str()
+    //             })
+    //             .collect::<Vec<String>>()
+    //             .join(" "),
+    //     )
+    // } else {
+    //     current.as_ref().and_then(|c| c.major.clone())
+    // };
+    // let validated_year = if let Some(y) = &payload.year {
+    //     match y.to_ascii_lowercase().as_str() {
+    //         "freshman" => Some("Freshman".to_string()),
+    //         "sophomore" => Some("Sophomore".to_string()),
+    //         "junior" => Some("Junior".to_string()),
+    //         "senior" => Some("Senior".to_string()),
+    //         _ => unreachable!(),
+    //     }
+    // } else {
+    //     current.as_ref().and_then(|c| c.year.clone())
+    // };
     let merged_bio = payload
         .bio
         .or_else(|| current.as_ref().and_then(|c| c.bio.clone()));
@@ -631,8 +628,8 @@ async fn put_profile(
         params![
             merged_name,
             merged_age,
-            validated_major,
-            validated_year,
+            payload.major,
+            payload.year,
             merged_bio,
             interests_text,
             merged_picture,
@@ -1124,7 +1121,7 @@ async fn delete_match(data: web::Json<MatchRequest>, state: web::Data<AppState>)
 }
 
 //endpoint for retrieving matches for a given user
-//queries the matches table 
+//queries the matches table
 async fn get_matches(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
