@@ -15,7 +15,6 @@ import { HttpClientModule } from '@angular/common/http';
 
 import { AppComponent } from './app.component';
 import { SwipeInterfaceComponent } from './components/swipe-interface/swipe-interface.component';
-import { BackendIntegrationComponent } from './components/backend-integration/backend-integration.component';
 import { ChatWindowComponent } from './components/chat-window/chat-window.component';
 import { AppRoutingModule } from './app-routing.module';
 
@@ -23,7 +22,6 @@ import { AppRoutingModule } from './app-routing.module';
   declarations: [
     AppComponent,
     SwipeInterfaceComponent,
-    BackendIntegrationComponent,
     ChatWindowComponent
   ],
   imports: [

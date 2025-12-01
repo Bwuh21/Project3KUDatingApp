@@ -11,6 +11,8 @@ Errors: None
 import { Component } from '@angular/core';
 import { ProfileService, ProfileUpsertDto } from './services/profile.service';
 import { AuthService } from './services/auth.service';
+import { MatchService, MatchDto } from './services/match.service';
+import { forkJoin } from 'rxjs';
 
 //generate all start page html
 //html partially assited by gemini.ai
@@ -26,6 +28,9 @@ import { AuthService } from './services/auth.service';
         <div class="nav-menu">
           <button class="nav-btn" [class.active]="currentView === 'swipe'" (click)="setView('swipe')">
             🔥 Discover
+          </button>
+          <button class="nav-btn" [class.active]="currentView === 'matches'" (click)="setView('matches')">
+            💑 Matches
           </button>
           <button class="nav-btn" [class.active]="currentView === 'chat'" (click)="setView('chat')">
             💬 Chat
@@ -146,7 +151,35 @@ import { AuthService } from './services/auth.service';
           <div *ngIf="currentView === 'swipe'" class="swipe-container">
             <app-swipe-interface></app-swipe-interface>
           </div>
-          
+
+          <div *ngIf="currentView === 'matches'" class="matches-container" style="padding: 2rem;">
+            <div class="coming-soon-content" style="text-align:left; max-width: 900px; margin: 0 auto;">
+              <h2>Your Matches</h2>
+              <p *ngIf="matchesLoading">Loading matches...</p>
+              <p *ngIf="matchesError" style="color:#b91c1c;">{{ matchesError }}</p>
+              <div *ngIf="!matchesLoading && !matchesError && !matches.length">
+                <p>You don't have any matches yet. Keep swiping on Discover!</p>
+              </div>
+              <div *ngIf="!matchesLoading && !matchesError && matches.length">
+                <div *ngFor="let m of matches" class="match-row" style="display:flex; align-items:center; gap:1rem; padding:0.75rem 0; border-bottom:1px solid #e5e7eb;">
+                  <div style="width:56px; height:56px; border-radius:50%; overflow:hidden; background:#e5e7eb; flex-shrink:0;">
+                    <img *ngIf="m.photoUrl" [src]="m.photoUrl" alt="Profile photo" style="width:100%; height:100%; object-fit:cover;">
+                  </div>
+                  <div style="flex:1;">
+                    <div style="font-weight:600; color:#111827;">
+                      {{ m.name }}
+                    </div>
+                    <div style="color:#6b7280; font-size:0.9rem;">
+                      <span *ngIf="m.year">{{ m.year }}</span>
+                      <span *ngIf="m.year && m.major"> • </span>
+                      <span *ngIf="m.major">{{ m.major }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div *ngIf="currentView === 'chat'" class="chat-container" style="padding: 2rem;">
             <app-chat-window></app-chat-window>
           </div>
@@ -231,10 +264,6 @@ import { AuthService } from './services/auth.service';
                 </form>
               </div>
             </div>
-          </div>
-          
-          <div *ngIf="currentView === 'backend'" class="backend-area">
-            <app-backend-integration></app-backend-integration>
           </div>
         </div>
       </main>
@@ -530,7 +559,22 @@ export class AppComponent {
   };
   registerFormConfirm = '';
 
-  constructor(private profiles: ProfileService, private auth: AuthService) { }
+  matches: Array<{
+    matchedUserId: number;
+    name: string;
+    year: string | null;
+    major: string | null;
+    photoUrl: string | null;
+    matchedAt: number;
+  }> = [];
+  matchesLoading = false;
+  matchesError = '';
+
+  constructor(
+    private profiles: ProfileService,
+    private auth: AuthService,
+    private matchesSvc: MatchService
+  ) { }
 
   //define login page
   login() {
@@ -611,6 +655,8 @@ export class AppComponent {
     this.currentView = view;
     if (view === 'profile') {
       this.refreshProfileStatus();
+    } else if (view === 'matches') {
+      this.loadMatches();
     }
   }
 
@@ -626,6 +672,51 @@ export class AppComponent {
       },
       error: () => {
         this.hasProfile = false;
+      }
+    });
+  }
+
+  //load all matches for the logged in user
+  private loadMatches() {
+    if (!this.userId) {
+      this.matches = [];
+      return;
+    }
+    this.matchesLoading = true;
+    this.matchesError = '';
+    this.matches = [];
+    this.matchesSvc.listMatches(this.userId).subscribe({
+      next: (list: MatchDto[]) => {
+        const ids = Array.from(new Set(list.map(m => m.matched_user_id)));
+        if (!ids.length) {
+          this.matchesLoading = false;
+          return;
+        }
+        forkJoin(ids.map(id => this.profiles.getProfile(id))).subscribe({
+          next: profiles => {
+            this.matches = profiles.map(p => {
+              const matchInfo = list.find(m => m.matched_user_id === p.user_id) || list[0];
+              const photoUrl = p.profile_picture ? this.profiles.profilePictureUrl(p.user_id) : null;
+              return {
+                matchedUserId: p.user_id,
+                name: p.name || `User ${p.user_id}`,
+                year: p.year || null,
+                major: p.major || null,
+                photoUrl,
+                matchedAt: matchInfo.timestamp
+              };
+            }).sort((a, b) => b.matchedAt - a.matchedAt);
+            this.matchesLoading = false;
+          },
+          error: () => {
+            this.matchesError = 'Failed to load match profiles.';
+            this.matchesLoading = false;
+          }
+        });
+      },
+      error: () => {
+        this.matchesError = 'Failed to load matches.';
+        this.matchesLoading = false;
       }
     });
   }

@@ -10,6 +10,7 @@ Errors: None
 
 import { Component, OnInit } from '@angular/core';
 import { ProfileService, ProfileDto } from '../../services/profile.service';
+import { MatchService } from '../../services/match.service';
 
 
 //define an interface for storing profile data
@@ -50,24 +51,24 @@ interface Profile {
              (mouseleave)="onMouseUp($event)">
           
           <div class="profile-image">
-            <img [src]="currentProfile.image" [alt]="currentProfile.name">
+            <img [src]="currentProfile?.image" [alt]="currentProfile?.name">
             <div class="profile-overlay">
               <div class="profile-info">
-                <h3>{{currentProfile.name}}, {{currentProfile.age}}</h3>
-                <p class="major-year">{{currentProfile.major}} • {{currentProfile.year}}</p>
+                <h3>{{currentProfile?.name}}, {{currentProfile?.age}}</h3>
+                <p class="major-year">{{currentProfile?.major}} • {{currentProfile?.year}}</p>
               </div>
             </div>
           </div>
 
           <div class="profile-details">
             <div class="bio">
-              <p>{{currentProfile.bio}}</p>
+              <p>{{currentProfile?.bio}}</p>
             </div>
             
             <div class="interests">
               <h4>Interests</h4>
               <div class="interest-tags">
-                <span class="tag" *ngFor="let interest of currentProfile.interests">
+                <span class="tag" *ngFor="let interest of currentProfile?.interests">
                   {{interest}}
                 </span>
               </div>
@@ -411,7 +412,10 @@ export class SwipeInterfaceComponent implements OnInit {
   cardOpacity = 1;
   swipeDirection = '';
 
-  constructor(private profileService: ProfileService) { }
+  constructor(
+    private profileService: ProfileService,
+    private matchService: MatchService
+  ) { }
 
   //on init load queue
   ngOnInit() {
@@ -552,6 +556,19 @@ export class SwipeInterfaceComponent implements OnInit {
     if (!this.currentProfile) return;
 
     this.likedProfiles.push(this.currentProfile);
+
+    //create a match in the backend so users can message each other
+    const meId = Number(localStorage.getItem('user_id') || 0);
+    const otherId = this.currentProfile.id;
+    if (meId && otherId) {
+      this.matchService.createMatch(meId, otherId).subscribe({
+        next: () => { },
+        error: (err) => {
+          console.error('Failed to create match', err);
+        }
+      });
+    }
+
     this.nextProfile();
   }
 

@@ -10,9 +10,10 @@ Errors: None
 
 import { Component, OnDestroy, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { Router } from '@angular/router';
-import { Subscription } from 'rxjs';
+import { Subscription, forkJoin } from 'rxjs';
 import { ChatMessage, ChatService } from '../../services/chat.service';
 import { ProfileService, ProfileDto } from '../../services/profile.service';
+import { MatchService, MatchDto } from '../../services/match.service';
 
 //define component for the chat window
 //define all inline html for displaying it
@@ -63,10 +64,18 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
 
           <div class="chat-body" #scrollContainer>
             <div *ngIf="!peerId" class="empty-state">
-              <div class="card">
-                <h4>Select someone from the left to start</h4>
-                <p>Choose a contact to load your past messages.</p>
-              </div>
+              <ng-container *ngIf="contacts.length; else noMatchesTpl">
+                <div class="card">
+                  <h4>Select someone from the left to start</h4>
+                  <p>Choose a contact to load your past messages.</p>
+                </div>
+              </ng-container>
+              <ng-template #noMatchesTpl>
+                <div class="card" style="color:#111827;">
+                  <h4 style="color:#111827;">Match with someone to start a chat!</h4>
+                  <p style="color:#111827;">Use the Discover tab to like other KU students. Once you both like each other, your match will appear here.</p>
+                </div>
+              </ng-template>
             </div>
 
             <div *ngIf="peerId" class="messages">
@@ -107,32 +116,32 @@ import { ProfileService, ProfileDto } from '../../services/profile.service';
                   <img [src]="peerProfilePhotoUrl" alt="Profile photo">
                 </div>
                 <div class="profile-name">
-                  <h4>{{ peerProfile.name || ('User ' + peerProfile.user_id) }}</h4>
-                  <div class="profile-subtle" *ngIf="peerProfile.year || peerProfile.major">
-                    <span *ngIf="peerProfile.year">{{ peerProfile.year }}</span>
-                    <span *ngIf="peerProfile.year && peerProfile.major"> • </span>
-                    <span *ngIf="peerProfile.major">{{ peerProfile.major }}</span>
+                  <h4>{{ peerProfile?.name || ('User ' + peerProfile?.user_id) }}</h4>
+                  <div class="profile-subtle" *ngIf="peerProfile?.year || peerProfile?.major">
+                    <span *ngIf="peerProfile?.year">{{ peerProfile?.year }}</span>
+                    <span *ngIf="peerProfile?.year && peerProfile?.major"> • </span>
+                    <span *ngIf="peerProfile?.major">{{ peerProfile?.major }}</span>
                   </div>
                 </div>
               </div>
 
               <div class="details-grid">
-                <div class="detail" *ngIf="peerProfile.age != null">
+                <div class="detail" *ngIf="peerProfile?.age != null">
                   <div class="label">Age</div>
-                  <div class="value">{{ peerProfile.age }}</div>
+                  <div class="value">{{ peerProfile?.age }}</div>
                 </div>
-                <div class="detail" *ngIf="peerProfile.year">
+                <div class="detail" *ngIf="peerProfile?.year">
                   <div class="label">Year</div>
-                  <div class="value">{{ peerProfile.year }}</div>
+                  <div class="value">{{ peerProfile?.year }}</div>
                 </div>
-                <div class="detail" *ngIf="peerProfile.major">
+                <div class="detail" *ngIf="peerProfile?.major">
                   <div class="label">Major</div>
-                  <div class="value">{{ peerProfile.major }}</div>
+                  <div class="value">{{ peerProfile?.major }}</div>
                 </div>
               </div>
 
-              <div class="bio" *ngIf="peerProfile.bio">
-                {{ peerProfile.bio }}
+              <div class="bio" *ngIf="peerProfile?.bio">
+                {{ peerProfile?.bio }}
               </div>
 
               <div class="interests" *ngIf="peerProfile?.interests?.length">
@@ -368,8 +377,15 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
 
   contacts: Array<{ id: number; name: string; emoji: string; photoUrl?: string | null }> = [];
   lastMessage: { [id: number]: { content: string; timestamp: number } } = {};
+  loadingContacts = false;
+  contactsError = '';
 
-  constructor(private chat: ChatService, private router: Router, private profiles: ProfileService) { }
+  constructor(
+    private chat: ChatService,
+    private router: Router,
+    private profiles: ProfileService,
+    private matches: MatchService
+  ) { }
 
   ngOnInit(): void {
     const storedUserId = localStorage.getItem('user_id');
@@ -378,25 +394,7 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
       return;
     }
     this.meId = parseInt(storedUserId, 10);
-    this.profiles.getQueue(this.meId).subscribe({
-      next: (profiles) => {
-        this.contacts = profiles.map(p => {
-          const photoUrl = p.profile_picture ? this.profiles.profilePictureUrl(p.user_id) : null;
-          return {
-            id: p.user_id,
-            name: p.name || 'User ' + p.user_id,
-            emoji: this.getEmojiForUser(p),
-            photoUrl
-          };
-        });
-        if (this.contacts.length) {
-          this.selectPeer(this.contacts[0].id);
-        }
-      },
-      error: () => {
-        console.error('Failed to load contacts');
-      }
-    });
+    this.loadContactsFromMatches();
 
     this.chat.connect(this.meId);
     this.subs.push(
@@ -412,6 +410,47 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
         }
       })
     );
+  }
+
+  //load contacts only from matched users
+  private loadContactsFromMatches(): void {
+    this.loadingContacts = true;
+    this.contactsError = '';
+    this.contacts = [];
+    this.matches.listMatches(this.meId).subscribe({
+      next: (list: MatchDto[]) => {
+        const ids = Array.from(new Set(list.map(m => m.matched_user_id)));
+        if (!ids.length) {
+          this.loadingContacts = false;
+          return;
+        }
+        forkJoin(ids.map(id => this.profiles.getProfile(id))).subscribe({
+          next: profiles => {
+            this.contacts = profiles.map(p => {
+              const photoUrl = p.profile_picture ? this.profiles.profilePictureUrl(p.user_id) : null;
+              return {
+                id: p.user_id,
+                name: p.name || 'User ' + p.user_id,
+                emoji: this.getEmojiForUser(p),
+                photoUrl
+              };
+            });
+            if (this.contacts.length) {
+              this.selectPeer(this.contacts[0].id);
+            }
+            this.loadingContacts = false;
+          },
+          error: () => {
+            this.contactsError = 'Failed to load matched profiles.';
+            this.loadingContacts = false;
+          }
+        });
+      },
+      error: () => {
+        this.contactsError = 'Failed to load matches.';
+        this.loadingContacts = false;
+      }
+    });
   }
 
   private getEmojiForUser(profile: ProfileDto): string {
