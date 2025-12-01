@@ -165,14 +165,22 @@ import { forkJoin } from 'rxjs';
                   <div style="width:56px; height:56px; border-radius:50%; overflow:hidden; background:#e5e7eb; flex-shrink:0;">
                     <img *ngIf="m.photoUrl" [src]="m.photoUrl" alt="Profile photo" style="width:100%; height:100%; object-fit:cover;">
                   </div>
-                  <div style="flex:1;">
-                    <div style="font-weight:600; color:#111827;">
-                      {{ m.name }}
+                  <div style="flex:1; display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+                    <div>
+                      <div style="font-weight:600; color:#111827;">
+                        {{ m.name }}
+                      </div>
+                      <div style="color:#6b7280; font-size:0.9rem;">
+                        <span *ngIf="m.year">{{ m.year }}</span>
+                        <span *ngIf="m.year && m.major"> • </span>
+                        <span *ngIf="m.major">{{ m.major }}</span>
+                        <span *ngIf=\"(m.year || m.major) && m.gender\"> • </span>
+                        <span *ngIf=\"m.gender\">{{ m.gender }}</span>
+                      </div>
                     </div>
-                    <div style="color:#6b7280; font-size:0.9rem;">
-                      <span *ngIf="m.year">{{ m.year }}</span>
-                      <span *ngIf="m.year && m.major"> • </span>
-                      <span *ngIf="m.major">{{ m.major }}</span>
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                      <button type="button" class="btn btn-outline" (click)="openChatWith(m.matchedUserId)">Message</button>
+                      <button type="button" class="btn btn-outline" (click)="openChatProfileWith(m.matchedUserId)">View Profile</button>
                     </div>
                   </div>
                 </div>
@@ -209,12 +217,19 @@ import { forkJoin } from 'rxjs';
                       <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                         <div class="form-group">
                           <label for="page">Age</label>
-                          <input id="page" type="number" [(ngModel)]="profileForm.age" name="page" min="16" max="120" required>
+                          <input 
+                            id="page" 
+                            type="number" 
+                            [(ngModel)]="profileForm.age" 
+                            name="page" 
+                            min="18" 
+                            max="100" 
+                            required>
                         </div>
                         <div class="form-group">
                           <label for="pyear">Year</label>
                           <select id="pyear" [(ngModel)]="profileForm.year" name="pyear" required>
-                            <option value="" disabled selected>Select year</option>
+                            <option value="" disabled>Select year</option>
                             <option>Freshman</option>
                             <option>Sophomore</option>
                             <option>Junior</option>
@@ -222,6 +237,16 @@ import { forkJoin } from 'rxjs';
                             <option>Graduate</option>
                           </select>
                         </div>
+                      </div>
+
+                      <div class="form-group">
+                        <label for="pgender">Gender</label>
+                        <select id="pgender" [(ngModel)]="profileForm.gender" name="pgender">
+                          <option value="" disabled>Select gender</option>
+                          <option>Male</option>
+                          <option>Female</option>
+                          <option>Other</option>
+                        </select>
                       </div>
 
                       <div class="form-group">
@@ -540,13 +565,15 @@ export class AppComponent {
     year: string;
     bio: string;
     interestsCsv: string;
+    gender: string;
   } = {
       name: '',
       age: null,
       major: '',
       year: '',
       bio: '',
-      interestsCsv: ''
+      interestsCsv: '',
+      gender: ''
     };
 
   profilePhotoDataUrl: string | null = null;
@@ -564,6 +591,7 @@ export class AppComponent {
     name: string;
     year: string | null;
     major: string | null;
+    gender: string | null;
     photoUrl: string | null;
     matchedAt: number;
   }> = [];
@@ -660,6 +688,26 @@ export class AppComponent {
     }
   }
 
+  // Open chat tab focused on a specific match
+  openChatWith(matchedUserId: number) {
+    if (!matchedUserId) {
+      return;
+    }
+    localStorage.setItem('initial_chat_peer_id', String(matchedUserId));
+    localStorage.removeItem('initial_chat_open_profile');
+    this.setView('chat');
+  }
+
+  // Open chat tab and immediately show that match's profile panel
+  openChatProfileWith(matchedUserId: number) {
+    if (!matchedUserId) {
+      return;
+    }
+    localStorage.setItem('initial_chat_peer_id', String(matchedUserId));
+    localStorage.setItem('initial_chat_open_profile', '1');
+    this.setView('chat');
+  }
+
   //setup service to refresh profile status
   private refreshProfileStatus() {
     if (!this.userId) {
@@ -702,6 +750,7 @@ export class AppComponent {
                 name: p.name || `User ${p.user_id}`,
                 year: p.year || null,
                 major: p.major || null,
+                gender: p.gender || null,
                 photoUrl,
                 matchedAt: matchInfo.timestamp
               };
@@ -729,7 +778,8 @@ export class AppComponent {
       major: '',
       year: '',
       bio: '',
-      interestsCsv: ''
+      interestsCsv: '',
+      gender: ''
     };
     this.profilePhotoDataUrl = null;
     this.profilePhotoFile = null;
@@ -747,6 +797,9 @@ export class AppComponent {
         if (p.profile_picture) {
           this.profilePhotoDataUrl = this.profiles.profilePictureUrl(this.userId);
         }
+        if (p.gender) {
+          this.profileForm.gender = p.gender;
+        }
       },
       error: (err) => {
         console.log('No existing profile data found (this is normal for new users)');
@@ -761,6 +814,16 @@ export class AppComponent {
 
   //setup button for saving profile
   saveProfile() {
+    // Enforce age between 18 and 100 (if provided)
+    if (this.profileForm.age == null || isNaN(this.profileForm.age as any)) {
+      alert('Please enter a valid age between 18 and 100.');
+      return;
+    }
+    if (this.profileForm.age < 18 || this.profileForm.age > 100) {
+      alert('Age must be between 18 and 100 to create a profile.');
+      return;
+    }
+
     const interests = this.profileForm.interestsCsv
       .split(',')
       .map(s => s.trim())
@@ -772,7 +835,8 @@ export class AppComponent {
       major: this.profileForm.major || null,
       year: this.profileForm.year || null,
       bio: this.profileForm.bio || null,
-      interests: interests.length ? interests : null
+      interests: interests.length ? interests : null,
+      gender: this.profileForm.gender || null
     };
 
     const afterUploadAndSave = () => {

@@ -138,6 +138,10 @@ import { MatchService, MatchDto } from '../../services/match.service';
                   <div class="label">Major</div>
                   <div class="value">{{ peerProfile?.major }}</div>
                 </div>
+                <div class="detail" *ngIf="peerProfile?.gender">
+                  <div class="label">Gender</div>
+                  <div class="value">{{ peerProfile?.gender }}</div>
+                </div>
               </div>
 
               <div class="bio" *ngIf="peerProfile?.bio">
@@ -435,9 +439,21 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
                 photoUrl
               };
             });
-            if (this.contacts.length) {
+
+            const storedPeer = localStorage.getItem('initial_chat_peer_id');
+            let targetId: number | null = null;
+            if (storedPeer) {
+              const n = Number(storedPeer);
+              targetId = Number.isFinite(n) ? n : null;
+            }
+
+            if (targetId && this.contacts.some(c => c.id === targetId)) {
+              this.selectPeer(targetId);
+            } else if (this.contacts.length) {
               this.selectPeer(this.contacts[0].id);
             }
+            localStorage.removeItem('initial_chat_peer_id');
+
             this.loadingContacts = false;
           },
           error: () => {
@@ -479,6 +495,15 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     if (this.peerId === id) return;
     this.peerId = id;
     this.loadHistory();
+
+    // If we were asked to auto-open the profile panel for this peer (from Matches tab)
+    const shouldOpenProfile = localStorage.getItem('initial_chat_open_profile') === '1';
+    if (shouldOpenProfile) {
+      localStorage.removeItem('initial_chat_open_profile');
+      this.openPeerProfile();
+      return;
+    }
+
     if (this.showProfilePanel) {
       this.openPeerProfile(); // refresh panel to new peer if open
     }
@@ -536,17 +561,14 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     const content = this.draft.trim();
     const sender = this.meId;
     const receiver = this.peerId;
-    this.chat.sendText(sender, receiver, content).subscribe(res => {
-      const ts = res?.timestamp ?? Date.now();
-      this.messages.push({
-        sender_id: sender,
-        receiver_id: receiver,
-        content,
-        timestamp: ts
-      });
-      this.lastMessage[receiver] = { content, timestamp: ts };
-      this.draft = '';
-      this.scrollToBottomSoon();
+    this.chat.sendText(sender, receiver, content).subscribe({
+      next: () => {
+        // Message will appear once via websocket echo in incomingMessages()
+        this.draft = '';
+      },
+      error: () => {
+        alert('Failed to send message. Please try again.');
+      }
     });
   }
 

@@ -22,6 +22,7 @@ export interface ProfileDto {
   bio?: string | null;
   interests?: string[] | null;
   profile_picture?: string | null;
+  gender?: string | null;
 }
 
 //define upsert profile structure
@@ -33,6 +34,7 @@ export interface ProfileUpsertDto {
   bio?: string | null;
   interests?: string[] | null;
   profile_picture?: string | null;
+  gender?: string | null;
 }
 
 //define profile service
