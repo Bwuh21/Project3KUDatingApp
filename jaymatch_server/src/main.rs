@@ -514,7 +514,7 @@ async fn put_profile(
     let uid = user_id.into_inner();
     let payload = data.into_inner();
     const VALID_GENDERS: &[&str] = &["male", "female", "other"];
-    const VALID_YEARS: &[&str] = &["freshman", "sophomore", "junior", "senior"];
+    const VALID_YEARS: &[&str] = &["freshman", "sophomore", "junior", "senior", "graduate"];
     const VALID_MAJORS: &[&str] = &[
         "computer science",
         "information technology",
@@ -538,7 +538,7 @@ async fn put_profile(
         if !VALID_YEARS.contains(&norm.as_str()) {
             return HttpResponse::BadRequest().json(serde_json::json!({
                 "success": false,
-                "message": "Invalid year. Allowed: Freshman, Sophomore, Junior, Senior"
+                "message": "Invalid year. Allowed: Freshman, Sophomore, Junior, Senior, Graduate"
             }));
         }
     }
@@ -652,7 +652,7 @@ async fn put_profile(
 async fn get_preference_options() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "gender_options": ["Male", "Female", "Other"],
-        "year_options": ["Freshman", "Sophomore", "Junior", "Senior"],
+        "year_options": ["Freshman", "Sophomore", "Junior", "Senior", "Graduate"],
         "major_options": [
             "Computer Science",
             "Information Technology",

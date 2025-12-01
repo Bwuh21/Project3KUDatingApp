@@ -409,8 +409,10 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
           this.lastMessage[otherId] = { content: m.content, timestamp: m.timestamp };
         }
         if (this.peerId && (m.sender_id === this.peerId || m.receiver_id === this.peerId)) {
-          this.messages.push(m);
-          this.scrollToBottomSoon();
+          if (!this.isDuplicateMessage(m)) {
+            this.messages.push(m);
+            this.scrollToBottomSoon();
+          }
         }
       })
     );
@@ -515,9 +517,20 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
       return;
     }
     this.chat.fetchHistory(this.meId, this.peerId, 100).subscribe(list => {
-      this.messages = list;
-      if (list.length) {
-        const last = list[list.length - 1];
+      const unique: ChatMessage[] = [];
+      for (const m of list) {
+        if (!unique.some(x =>
+          x.sender_id === m.sender_id &&
+          x.receiver_id === m.receiver_id &&
+          x.timestamp === m.timestamp &&
+          x.content === m.content
+        )) {
+          unique.push(m);
+        }
+      }
+      this.messages = unique;
+      if (unique.length) {
+        const last = unique[unique.length - 1];
         this.lastMessage[this.peerId!] = { content: last.content, timestamp: last.timestamp };
       }
       this.scrollToBottomSoon();
@@ -588,5 +601,14 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
       const el = this.scrollContainer.nativeElement;
       el.scrollTop = el.scrollHeight;
     }, 0);
+  }
+
+  private isDuplicateMessage(m: ChatMessage): boolean {
+    return this.messages.some(x =>
+      x.sender_id === m.sender_id &&
+      x.receiver_id === m.receiver_id &&
+      x.timestamp === m.timestamp &&
+      x.content === m.content
+    );
   }
 }
