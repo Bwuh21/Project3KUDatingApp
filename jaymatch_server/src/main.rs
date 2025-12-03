@@ -8,25 +8,43 @@ Pre/Post Conditions: The server should be running and able to handle requests fr
 Errors: Web errors for bad connection, port errors for firewall, possible errors involving CORS policies.
 */
 
+// Actix actor system for WebSocket handling
 use actix::prelude::*;
+// CORS middleware for cross-origin requests
 use actix_cors::Cors;
+// Multipart form data handling for file uploads
 use actix_multipart::Multipart;
+// Logging middleware for HTTP requests
 use actix_web::middleware::Logger;
+// Actix web framework components
 use actix_web::{App, Error, HttpRequest, HttpResponse, HttpServer, Responder, web};
+// WebSocket support for Actix
 use actix_web_actors::ws;
+// Date/time utilities
 use chrono::{Local, Utc};
+// Environment logger configuration
 use env_logger::Env;
+// Stream utilities for async operations
 use futures_util::stream::StreamExt;
+// Logging macros
 use log::{info, warn};
+// SQLite database connection and parameter binding
 use rusqlite::{Connection, params};
+// Serialization/deserialization for JSON
 use serde::{Deserialize, Serialize};
+// HashMap for storing WebSocket clients
 use std::collections::HashMap;
+// File system operations
 use std::fs;
+// File writing operations
 use std::io::Write;
+// Path utilities
 use std::path::Path;
+// Mutex for thread-safe shared state
 use std::sync::Mutex;
 
-//datastructure to hold and seriaze profile data
+// Data structure to hold and serialize profile data
+// Used for storing and transmitting user profile information
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Profile {
     user_id: i32,
@@ -42,7 +60,7 @@ struct Profile {
     is_felon: Option<bool>,
 }
 
-//structure to provide profile data to client
+// Structure to provide profile data to client for create/update operations
 #[derive(Serialize, Deserialize, Debug)]
 struct ProfileUpsert {
     name: Option<String>,
@@ -55,7 +73,7 @@ struct ProfileUpsert {
     gender: Option<String>,
 }
 
-//strucutre to hold user data
+// Structure to hold user authentication data
 #[derive(Serialize, Deserialize)]
 struct User {
     id: Option<i32>,
@@ -63,7 +81,7 @@ struct User {
     password: String,
 }
 
-//structure for creating a new user
+// Structure for creating a new user account
 #[derive(Serialize, Deserialize)]
 struct NewUser {
     name: String,
@@ -71,7 +89,7 @@ struct NewUser {
     email: String,
 }
 
-//structure for sending and recieving message
+// Structure for sending and receiving chat messages
 #[derive(Serialize, Deserialize, Debug)]
 struct Message {
     id: Option<i64>,
@@ -81,7 +99,7 @@ struct Message {
     timestamp: i64,
 }
 
-//message header data
+// Message header data for POST requests
 #[derive(Deserialize)]
 struct MessagePost {
     sender_id: i32,
@@ -89,15 +107,17 @@ struct MessagePost {
     content: String,
 }
 
-//websocket structure
+// WebSocket message structure for actor system
+// Wraps string message for WebSocket delivery
 #[derive(Message)]
 #[rtype(result = "()")]
 struct WsMessage(pub String);
 
-//structure to hold app sate
+// Structure to hold application state
+// Shared across all HTTP handlers and WebSocket connections
 struct AppState {
-    db_conn: Mutex<Connection>,
-    clients: Mutex<HashMap<i32, Recipient<WsMessage>>>,
+    db_conn: Mutex<Connection>,  // Thread-safe database connection
+    clients: Mutex<HashMap<i32, Recipient<WsMessage>>>,  // Active WebSocket clients by user ID
 }
 
 impl AppState {
@@ -109,15 +129,17 @@ impl AppState {
     }
 }
 
-// api.jaymatch.cc/health
-//checks to see if the backend is active
+// Health check endpoint: api.jaymatch.cc/health
+// Checks to see if the backend is active
+// Returns simple text response indicating server is running
 async fn health() -> impl Responder {
     HttpResponse::Ok().body("Backend active")
 }
 
-//api endpoint for creating a new user
-//expects serialized json in the form of NewUser
-//stores user in profiles sqlite table
+// API endpoint for creating a new user: POST /users/new
+// Expects serialized JSON in the form of NewUser
+// Stores user in profiles SQLite table
+// Validates KU email domain (@ku.edu)
 async fn create_new_user(data: web::Json<NewUser>, state: web::Data<AppState>) -> impl Responder {
     // Enforce KU email domain
     let email_ok = data.email.to_lowercase().ends_with("@ku.edu");
@@ -150,9 +172,10 @@ async fn create_new_user(data: web::Json<NewUser>, state: web::Data<AppState>) -
     }))
 }
 
-//api endpoint to update a profile picture
-//stores the profile picture in uploads directory
-//stores file metadata in the profile_pictures table
+// API endpoint to update a profile picture: POST /users/profile-picture
+// Stores the profile picture in uploads directory
+// Stores file metadata in the profiles table
+// Handles multipart form data with user_id and image file
 async fn update_profile_picture(
     mut payload: Multipart,
     state: web::Data<AppState>,
@@ -211,9 +234,10 @@ async fn update_profile_picture(
     }
 }
 
-//api for logging in
-//expects user info serialized json
-//returns return code indicating login status
+// API for logging in: POST /login
+// Expects user info serialized JSON (email and password)
+// Returns response code indicating login status
+// Validates credentials against database
 async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let mut stmt =
@@ -269,9 +293,10 @@ async fn login(data: web::Json<User>, state: web::Data<AppState>) -> impl Respon
     }
 }
 
-//api for retrieving a profile picture
-//expects user id
-//returns profile picture from the profile_pictures table and the uploads directory
+// API for retrieving a profile picture: GET /users/{user_id}/profile-picture
+// Expects user ID as path parameter
+// Returns profile picture from the profiles table and the uploads directory
+// Sets appropriate content-type header based on file extension
 async fn get_profile_picture(
     user_id: web::Path<i32>,
     state: web::Data<AppState>,
@@ -304,8 +329,9 @@ async fn get_profile_picture(
     }
 }
 
-//returns a basic html page when accessing the backend
-//used for debuggina and checking if backend is active
+// Returns a basic HTML page when accessing the backend root: GET /
+// Used for debugging and checking if backend is active
+// Displays server status page
 async fn index() -> impl Responder {
     let html = r#"
     <html>
@@ -346,10 +372,11 @@ async fn index() -> impl Responder {
         .body(html)
 }
 
-//api for sending a message from one user to another
-//opens a websocket with the client
-//updates messages table
-//alerts recipient of the message
+// API for sending a message from one user to another: POST /messages
+// Validates that users are matched before allowing messaging
+// Updates messages table in database
+// Sends message via WebSocket to recipient if online
+// Alerts recipient of the message in real-time
 async fn post_message(data: web::Json<MessagePost>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let (lower_id, higher_id) = if data.sender_id < data.receiver_id {
@@ -407,8 +434,10 @@ async fn post_message(data: web::Json<MessagePost>, state: web::Data<AppState>) 
     }
 }
 
-//api for recieving messages
-//loads all messages from sqlite for a given user
+// API for receiving messages: GET /messages/{a}/{b}
+// Loads all messages from SQLite for a conversation between two users
+// Supports limit query parameter to limit number of messages returned
+// Returns messages sorted by timestamp (newest first, then reversed)
 async fn get_messages(
     path: web::Path<(i32, i32)>,
     query: web::Query<HashMap<String, String>>,
@@ -448,8 +477,9 @@ async fn get_messages(
     HttpResponse::Ok().json(msgs)
 }
 
-//helper function for converting to profile data
-//useful in datamigrations
+// Helper function for converting database row to profile data
+// Useful in data migrations and when reading from database
+// Handles parsing of interests JSON string or comma-separated values
 fn row_to_profile(row: &rusqlite::Row) -> Profile {
     let interests_text: Option<String> = row.get(8).ok();
     let interests: Option<Vec<String>> = interests_text.as_ref().and_then(|txt| {
@@ -477,9 +507,9 @@ fn row_to_profile(row: &rusqlite::Row) -> Profile {
     }
 }
 
-//api for recieving all profile information for a user
-//queries all relevant tables to get and format data
-//returns serialized user data
+// API for receiving all profile information for a user: GET /profiles/{user_id}
+// Queries all relevant tables to get and format data
+// Returns serialized user profile data as JSON
 async fn get_profile(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
@@ -500,9 +530,10 @@ async fn get_profile(user_id: web::Path<i32>, state: web::Data<AppState>) -> imp
     }
 }
 
-//api for setting a user profile
-//recieves a user ID and a ProfileUpsert datastructure
-//updates sqlite tables with new data
+// API for setting a user profile: PUT /profiles/{user_id}
+// Receives a user ID and a ProfileUpsert data structure
+// Updates SQLite tables with new profile data
+// Validates gender values and merges with existing profile data
 async fn put_profile(
     user_id: web::Path<i32>,
     data: web::Json<ProfileUpsert>,
@@ -644,8 +675,9 @@ async fn put_profile(
     }
 }
 
-//api for helping the frontend to know what profile filters exist
-//returns a string list of all current filters
+// API for helping the frontend to know what profile filters exist: GET /preference-options
+// Returns a JSON object with lists of all available filter options
+// Includes gender, year, major, and felon options
 async fn get_preference_options() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "gender_options": ["Male", "Female", "Other"],
@@ -663,13 +695,15 @@ async fn get_preference_options() -> impl Responder {
     }))
 }
 
-//structure for creating a websocket
+// Structure for creating a WebSocket connection
+// Represents a single WebSocket client connection
 struct MyWs {
-    user_id: i32,
-    state: web::Data<AppState>,
+    user_id: i32,                    // User ID associated with this connection
+    state: web::Data<AppState>,      // Shared application state
 }
 
-//websocket actor functionality
+// WebSocket actor functionality
+// Implements Actor trait for handling WebSocket lifecycle
 impl Actor for MyWs {
     type Context = ws::WebsocketContext<Self>;
 
@@ -692,7 +726,8 @@ impl Actor for MyWs {
     }
 }
 
-//how does the websocket handle messages
+// How the websocket handles incoming messages
+// Forwards messages from server to client via WebSocket
 impl Handler<WsMessage> for MyWs {
     type Result = ();
 
@@ -701,7 +736,8 @@ impl Handler<WsMessage> for MyWs {
     }
 }
 
-//how does the websocket handle streams
+// How the websocket handles streams
+// Processes incoming WebSocket messages (text, ping, pong, close)
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWs {
     fn handle(
         &mut self,
@@ -730,7 +766,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for MyWs {
     }
 }
 
-//function for initiating the websocket
+// Function for initiating the WebSocket connection: GET /ws/{user_id}
+// Creates WebSocket actor and starts connection
 async fn ws_index(
     req: HttpRequest,
     stream: web::Payload,
@@ -745,9 +782,10 @@ async fn ws_index(
     ws::start(ws, &req, stream)
 }
 
-//api endpoint to retrieve a filtered list of potential matches
-//queries tables for all other user profiles that math the stored filters
-//returns the serialized data
+// API endpoint to retrieve a filtered list of potential matches: GET /queue/{user_id}
+// Queries tables for all other user profiles that match the stored filters
+// Applies gender, age, year, major, and felon preferences
+// Returns the serialized profile data as JSON array
 async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
@@ -864,14 +902,16 @@ async fn get_queue(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl 
     }
 }
 
-//structure for a profile deletion request
+// Structure for a profile deletion request
+// Requires email and password for authentication
 #[derive(Deserialize)]
 struct DeleteRequest {
     email: String,
     password: String,
 }
 
-//strucutre for holding preferences
+// Structure for holding user preferences
+// Stores filter preferences for matching
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Preferences {
     user_id: i32,
@@ -883,7 +923,8 @@ struct Preferences {
     is_felon: Option<bool>,
 }
 
-//structure to be sent between client and server for preferences
+// Structure to be sent between client and server for preferences
+// Used for creating or updating user preferences
 #[derive(Deserialize, Debug)]
 struct PreferencesUpsert {
     gender_preference: Option<Vec<String>>,
@@ -894,7 +935,8 @@ struct PreferencesUpsert {
     is_felon: Option<bool>,
 }
 
-//structure to hold match
+// Structure to hold match data
+// Represents a match between two users
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Match {
     user_id: i32,
@@ -902,16 +944,18 @@ struct Match {
     timestamp: i64,
 }
 
-//structure for match requests
+// Structure for match requests
+// Used when creating or deleting matches
 #[derive(Deserialize)]
 struct MatchRequest {
     user_id: i32,
     matched_user_id: i32,
 }
 
-//api for deleting a user
-//requires user password or admin password
-//reletes all table related data for user
+// API for deleting a user: POST /delete_user
+// Requires user password or admin password (1234)
+// Deletes all table related data for user (messages, profile, preferences)
+// Uses database transaction to ensure atomicity
 async fn delete_user(data: web::Json<DeleteRequest>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let mut stmt = match conn.prepare("SELECT user_id, password FROM profiles WHERE email = ?1") {
@@ -959,8 +1003,9 @@ async fn delete_user(data: web::Json<DeleteRequest>, state: web::Data<AppState>)
     }))
 }
 
-//api for retrieving user preferences
-//takes in a user id and returns the strucutred preference data
+// API for retrieving user preferences: GET /preferences/{user_id}
+// Takes in a user ID and returns the structured preference data
+// Returns default empty preferences if user has none set
 async fn get_preferences(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
@@ -1009,9 +1054,9 @@ async fn get_preferences(user_id: web::Path<i32>, state: web::Data<AppState>) ->
     }
 }
 
-//api for setting preferences
-//takes in user id and structured preference update data
-//updates the preferences table
+// API for setting preferences: PUT /preferences/{user_id}
+// Takes in user ID and structured preference update data
+// Updates the preferences table using INSERT ... ON CONFLICT DO UPDATE
 async fn put_preferences(
     user_id: web::Path<i32>,
     data: web::Json<PreferencesUpsert>,
@@ -1054,8 +1099,10 @@ async fn put_preferences(
     }
 }
 
-//function for creating a match between two users
-//updates the matches table
+// Function for creating a match between two users: POST /matches
+// Updates the matches table
+// Normalizes user IDs (lower ID first) to prevent duplicate matches
+// Checks if match already exists before creating
 async fn create_match(data: web::Json<MatchRequest>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let ts = Utc::now().timestamp_millis();
@@ -1093,8 +1140,9 @@ async fn create_match(data: web::Json<MatchRequest>, state: web::Data<AppState>)
     }
 }
 
-//endpoint for unmatching
-//updates matches table
+// Endpoint for unmatching: DELETE /matches
+// Updates matches table by removing the match record
+// Normalizes user IDs to find the correct match record
 async fn delete_match(data: web::Json<MatchRequest>, state: web::Data<AppState>) -> impl Responder {
     let conn = state.db_conn.lock().unwrap();
     let (lower_id, higher_id) = if data.user_id < data.matched_user_id {
@@ -1120,8 +1168,9 @@ async fn delete_match(data: web::Json<MatchRequest>, state: web::Data<AppState>)
     }
 }
 
-//endpoint for retrieving matches for a given user
-//queries the matches table
+// Endpoint for retrieving matches for a given user: GET /matches/{user_id}
+// Queries the matches table
+// Returns all matches where user is either user_id or matched_user_id
 async fn get_matches(user_id: web::Path<i32>, state: web::Data<AppState>) -> impl Responder {
     let uid = user_id.into_inner();
     let conn = state.db_conn.lock().unwrap();
@@ -1144,10 +1193,11 @@ async fn get_matches(user_id: web::Path<i32>, state: web::Data<AppState>) -> imp
     HttpResponse::Ok().json(matches)
 }
 
-//function for rotating database backups
-//create a backups directory
-//store the last N backups and rotate them
-//delete old ones
+// Function for rotating database backups
+// Creates a backups directory if it doesn't exist
+// Stores the last N backups (20) and rotates them
+// Deletes old backups beyond the limit
+// Called on server startup
 fn rotate_backups() {
     fs::create_dir_all("db_backups").ok();
     let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
@@ -1173,16 +1223,17 @@ fn rotate_backups() {
     }
 }
 
-//main function to build the server
+// Main function to build the server
+// Entry point for the Actix web server
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    //update backkuos
+    // Update backups - create backup of database before starting
     rotate_backups();
-    //enable logging
+    // Enable logging - initialize logger from environment variables
     env_logger::init_from_env(Env::default().default_filter_or("info"));
-    //create database
+    // Create database connection - open or create SQLite database file
     let conn = Connection::open("test.db").unwrap();
-    //create matches table
+    // Create matches table - stores relationships between matched users
     conn.execute(
         "CREATE TABLE IF NOT EXISTS matches (
             user_id INTEGER NOT NULL,
@@ -1195,7 +1246,7 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
-    //create profiles table
+    // Create profiles table - stores user profile information
     conn.execute(
         "CREATE TABLE IF NOT EXISTS profiles (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1214,7 +1265,7 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
-    //create messages table
+    // Create messages table - stores chat messages between users
     conn.execute(
         "CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY,
@@ -1226,7 +1277,7 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
-    //create preferences table
+    // Create preferences table - stores user filter preferences for matching
     conn.execute(
         "CREATE TABLE IF NOT EXISTS preferences (
         user_id INTEGER PRIMARY KEY,
@@ -1241,9 +1292,10 @@ async fn main() -> std::io::Result<()> {
         params![],
     )
     .unwrap();
-    //build app
-    //add all endpoints with the correct http protocols
+    // Build app - create shared application state
+    // Add all endpoints with the correct HTTP protocols
     let state = web::Data::new(AppState::new(conn));
+    // Create HTTP server with all routes and middleware
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
@@ -1285,7 +1337,10 @@ async fn main() -> std::io::Result<()> {
             .route("/matches", web::delete().to(delete_match))
             .route("/matches/{user_id}", web::get().to(get_matches))
     })
-    .bind(("127.0.0.1", 8080))? //run server at localhost port 8080 and wait for cloudflare tunnel to activate
+    // Bind server to localhost port 8080
+    // Run server and wait for Cloudflare tunnel to activate
+    .bind(("127.0.0.1", 8080))?
+    // Start the server and await completion
     .run()
     .await
 }

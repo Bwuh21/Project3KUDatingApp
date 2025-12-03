@@ -8,66 +8,83 @@ Pre/Post Conditions: should send and recieve profile data. Should interact with 
 Errors: None
 */
 
+// Import Angular injectable decorator for dependency injection
 import { Injectable } from '@angular/core';
+// Import HTTP client for making API requests
 import { HttpClient } from '@angular/common/http';
+// Import Observable for handling asynchronous responses
 import { Observable } from 'rxjs';
 
-//define struct for profile data
+// Define structure for profile data received from the server
 export interface ProfileDto {
-  user_id: number;
-  name?: string | null;
-  age?: number | null;
-  major?: string | null;
-  year?: string | null;
-  bio?: string | null;
-  interests?: string[] | null;
-  profile_picture?: string | null;
-  gender?: string | null;
+  user_id: number;              // Unique user identifier
+  name?: string | null;         // User's full name
+  age?: number | null;          // User's age
+  major?: string | null;        // User's major field of study
+  year?: string | null;         // User's academic year (Freshman, Sophomore, etc.)
+  bio?: string | null;          // User's biography/description
+  interests?: string[] | null;   // Array of user's interests
+  profile_picture?: string | null; // Path to profile picture file
+  gender?: string | null;        // User's gender
 }
 
-//define upsert profile structure
+// Define structure for creating or updating a profile (upsert operation)
 export interface ProfileUpsertDto {
-  name?: string | null;
-  age?: number | null;
-  major?: string | null;
-  year?: string | null;
-  bio?: string | null;
-  interests?: string[] | null;
-  profile_picture?: string | null;
-  gender?: string | null;
+  name?: string | null;         // User's full name
+  age?: number | null;          // User's age
+  major?: string | null;        // User's major field of study
+  year?: string | null;         // User's academic year
+  bio?: string | null;          // User's biography/description
+  interests?: string[] | null;   // Array of user's interests
+  profile_picture?: string | null; // Path to profile picture file
+  gender?: string | null;        // User's gender
 }
 
-//define profile service
+// Define profile service for interacting with user profiles
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
+  // Base URL for the API server
   private readonly base = 'https://api.jaymatch.cc';
 
+  // Constructor - injects HttpClient for making HTTP requests
   constructor(private http: HttpClient) { }
 
-  //send request to server to get a profile data
+  // Send request to server to get a user's profile data
+  // GET request to /profiles/{userId} endpoint
   getProfile(userId: number): Observable<ProfileDto> {
     return this.http.get<ProfileDto>(`${this.base}/profiles/${userId}`);
   }
 
-  //send request to update profile in sqlite tables
+  // Send request to update profile in database (create or update)
+  // PUT request to /profiles/{userId} endpoint
+  // Updates SQLite tables with new profile data
   upsertProfile(userId: number, payload: ProfileUpsertDto): Observable<{ success: boolean; user_id: number }> {
     return this.http.put<{ success: boolean; user_id: number }>(`${this.base}/profiles/${userId}`, payload);
   }
 
-  //send a new profile picture and tell the server to update headers
+  // Send a new profile picture file to the server
+  // POST request to /users/profile-picture endpoint
+  // Uses FormData to upload the image file
   uploadProfilePicture(userId: number, file: File): Observable<any> {
+    // Create FormData object for file upload
     const form = new FormData();
+    // Append user ID to form data
     form.append('user_id', String(userId));
+    // Append image file to form data
     form.append('image', file);
+    // Send POST request with form data
     return this.http.post(`${this.base}/users/profile-picture`, form);
   }
 
-  //create a url for the profile for it to be sent
+  // Create a URL for retrieving a user's profile picture
+  // Returns the API endpoint URL for the profile picture
   profilePictureUrl(userId: number): string {
     return `${this.base}/users/${userId}/profile-picture`;
   }
 
-  //retrieve a queue of profiles for each user using server
+  // Retrieve a queue of potential match profiles for a user
+  // GET request to /queue/{userId} endpoint
+  // Returns filtered list of profiles based on user preferences
   getQueue(userId: number): Observable<ProfileDto[]> {
     return this.http.get<ProfileDto[]>(`${this.base}/queue/${userId}`);
   }

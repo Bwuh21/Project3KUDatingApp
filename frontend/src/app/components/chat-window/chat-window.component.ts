@@ -8,16 +8,22 @@ Pre/Post Conditions: Website should display proper chat window. Chat should corr
 Errors: None
 */
 
+// Import Angular component, lifecycle hooks, and view child decorator
 import { Component, OnDestroy, OnInit, ViewChild, ElementRef } from '@angular/core';
+// Import Angular router for navigation
 import { Router } from '@angular/router';
+// Import RxJS observables for reactive programming
 import { Subscription, forkJoin } from 'rxjs';
+// Import chat service and message interface
 import { ChatMessage, ChatService } from '../../services/chat.service';
+// Import profile service and data transfer objects
 import { ProfileService, ProfileDto } from '../../services/profile.service';
+// Import match service and data transfer objects
 import { MatchService, MatchDto } from '../../services/match.service';
 
-//define component for the chat window
-//define all inline html for displaying it
-//html assited by gemini AI
+// Define component for the chat window
+// Define all inline HTML for displaying it
+// HTML assisted by gemini AI
 @Component({
   selector: 'app-chat-window',
   template: `
@@ -360,35 +366,47 @@ import { MatchService, MatchDto } from '../../services/match.service';
   `]
 })
 
-//define methods for initiating and deleting the chat window component
-//store relevant data like is connected, ids, and messages
+// Define methods for initiating and deleting the chat window component
+// Store relevant data like connection status, IDs, and messages
 export class ChatWindowComponent implements OnInit, OnDestroy {
+  // Reference to scroll container element for auto-scrolling
   @ViewChild('scrollContainer') scrollContainer!: ElementRef<HTMLDivElement>;
+  // Current user's ID
   meId: number = 0;
+  // ID of the user we're chatting with (peer)
   peerId: number | null = null;
+  // WebSocket connection status
   connected = false;
+  // Array of chat messages in current conversation
   messages: ChatMessage[] = [];
+  // Draft message text in input field
   draft = '';
 
-  // Profile panel state
-  showProfilePanel = false;
-  peerProfile: ProfileDto | null = null;
-  peerProfilePhotoUrl: string | null = null;
-  peerProfileLoading = false;
-  peerProfileError = '';
+  // Profile panel state for viewing peer's profile
+  showProfilePanel = false;                    // Whether profile panel is visible
+  peerProfile: ProfileDto | null = null;       // Peer's profile data
+  peerProfilePhotoUrl: string | null = null;   // URL to peer's profile photo
+  peerProfileLoading = false;                  // Loading state for profile
+  peerProfileError = '';                       // Error message for profile loading
 
+  // Array of RxJS subscriptions to manage and cleanup
   private subs: Subscription[] = [];
 
+  // List of contacts (matched users) for chat sidebar
   contacts: Array<{ id: number; name: string; emoji: string; photoUrl?: string | null }> = [];
+  // Map of last message for each contact (for preview in sidebar)
   lastMessage: { [id: number]: { content: string; timestamp: number } } = {};
+  // Loading state for contacts list
   loadingContacts = false;
+  // Error message for contacts loading
   contactsError = '';
 
+  // Constructor - injects required services
   constructor(
-    private chat: ChatService,
-    private router: Router,
-    private profiles: ProfileService,
-    private matches: MatchService
+    private chat: ChatService,        // Chat service for messaging
+    private router: Router,          // Router for navigation
+    private profiles: ProfileService, // Profile service for user profiles
+    private matches: MatchService    // Match service for matches
   ) { }
 
   ngOnInit(): void {
@@ -418,7 +436,8 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     );
   }
 
-  //load contacts only from matched users
+  // Load contacts only from matched users
+  // Fetches all matches and loads profile data for each matched user
   private loadContactsFromMatches(): void {
     this.loadingContacts = true;
     this.contactsError = '';
@@ -493,6 +512,8 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     return this.contacts.find(c => c.id === this.peerId) || null;
   }
 
+  // Select a peer to chat with
+  // Loads message history and optionally opens profile panel
   selectPeer(id: number): void {
     if (this.peerId === id) return;
     this.peerId = id;
@@ -511,6 +532,8 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     }
   }
 
+  // Load message history for current peer
+  // Fetches past messages and removes duplicates
   loadHistory(): void {
     if (!this.peerId) {
       this.messages = [];
@@ -537,6 +560,8 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     });
   }
 
+  // Open peer's profile panel
+  // Fetches and displays the profile of the user we're chatting with
   openPeerProfile(): void {
     if (!this.peerId) { return; }
     this.showProfilePanel = true;
@@ -561,14 +586,18 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     });
   }
 
+  // Close peer's profile panel
   closePeerProfile(): void {
     this.showProfilePanel = false;
   }
 
+  // Check if message can be sent (has peer selected and draft text)
   canSend(): boolean {
     return !!this.peerId && !!this.draft.trim();
   }
 
+  // Send a message to the current peer
+  // Sends message via HTTP and it will appear via WebSocket
   send(): void {
     if (!this.canSend() || this.peerId == null) return;
     const content = this.draft.trim();
@@ -585,16 +614,20 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     });
   }
 
+  // Format timestamp to readable time string
   formatTime(ts: number): string {
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
+  // Format timestamp to short time string (for sidebar preview)
   shortTime(ts: number): string {
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
+  // Scroll chat container to bottom after messages load
+  // Uses setTimeout to ensure DOM is updated first
   private scrollToBottomSoon(): void {
     setTimeout(() => {
       if (!this.scrollContainer) return;
@@ -603,6 +636,8 @@ export class ChatWindowComponent implements OnInit, OnDestroy {
     }, 0);
   }
 
+  // Check if message is a duplicate (already in messages array)
+  // Prevents duplicate messages from appearing
   private isDuplicateMessage(m: ChatMessage): boolean {
     return this.messages.some(x =>
       x.sender_id === m.sender_id &&

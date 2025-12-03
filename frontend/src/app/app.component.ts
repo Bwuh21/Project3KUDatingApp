@@ -8,14 +8,20 @@ Pre/Post Should start all of the component services, should create html and shou
 Errors: None
 */
 
+// Import Angular component decorator
 import { Component } from '@angular/core';
+// Import profile service and data transfer objects
 import { ProfileService, ProfileUpsertDto } from './services/profile.service';
+// Import authentication service
 import { AuthService } from './services/auth.service';
+// Import match service and data transfer objects
 import { MatchService, MatchDto } from './services/match.service';
+// Import RxJS forkJoin for parallel observables
 import { forkJoin } from 'rxjs';
 
-//generate all start page html
-//html partially assited by gemini.ai
+// Generate all start page HTML
+// HTML partially assisted by gemini.ai
+// Main app component - root component that contains all views
 @Component({
   selector: 'app-root',
   template: `
@@ -544,20 +550,28 @@ import { forkJoin } from 'rxjs';
   `]
 })
 
-//define main app service
+// Define main app component class
 export class AppComponent {
+  // Authentication state - true if user is logged in
   isAuthenticated = false;
+  // Current view being displayed (swipe, matches, chat, profile)
   currentView = 'swipe';
+  // Whether to show registration form instead of login
   showRegister = false;
+  // Whether to show profile creation/edit form
   showProfileForm = false;
+  // Whether current user has a profile created
   hasProfile = false;
+  // Current logged-in user ID
   userId = 0;
 
+  // Login form data - email and password fields
   loginForm = {
     email: '',
     password: ''
   };
 
+  // Profile form data structure
   profileForm: {
     name: string;
     age: number | null;
@@ -576,16 +590,21 @@ export class AppComponent {
       gender: ''
     };
 
+  // Profile photo preview as data URL (base64)
   profilePhotoDataUrl: string | null = null;
+  // Profile photo file object for upload
   private profilePhotoFile: File | null = null;
 
+  // Registration form data
   registerForm = {
     name: '',
     email: '',
     password: ''
   };
+  // Password confirmation field for registration
   registerFormConfirm = '';
 
+  // Array of matched users with their profile information
   matches: Array<{
     matchedUserId: number;
     name: string;
@@ -595,16 +614,19 @@ export class AppComponent {
     photoUrl: string | null;
     matchedAt: number;
   }> = [];
+  // Loading state for matches
   matchesLoading = false;
+  // Error message for matches loading
   matchesError = '';
 
+  // Constructor - injects required services
   constructor(
-    private profiles: ProfileService,
-    private auth: AuthService,
-    private matchesSvc: MatchService
+    private profiles: ProfileService,  // Profile service for user profiles
+    private auth: AuthService,         // Authentication service
+    private matchesSvc: MatchService   // Match service for matches
   ) { }
 
-  //define login page
+  // Define login method - handles user authentication
   login() {
     if (!this.loginForm.email || !this.loginForm.password) {
       alert('Please enter email and password');
@@ -632,7 +654,7 @@ export class AppComponent {
     });
   }
 
-  //setup account registration service
+  // Setup account registration service - handles new user registration
   register() {
     const email = (this.registerForm.email || '').toLowerCase().trim();
     if (!email.endsWith('@ku.edu')) {
@@ -670,7 +692,7 @@ export class AppComponent {
     });
   }
 
-  //setup account logout button
+  // Setup account logout button - clears authentication and resets state
   logout() {
     this.isAuthenticated = false;
     this.userId = 0;
@@ -679,6 +701,7 @@ export class AppComponent {
     this.loginForm = { email: '', password: '' };
   }
 
+  // Set the current view and load related data if needed
   setView(view: string) {
     this.currentView = view;
     if (view === 'profile') {
@@ -689,6 +712,7 @@ export class AppComponent {
   }
 
   // Open chat tab focused on a specific match
+  // Stores the matched user ID in localStorage for chat component to use
   openChatWith(matchedUserId: number) {
     if (!matchedUserId) {
       return;
@@ -699,6 +723,7 @@ export class AppComponent {
   }
 
   // Open chat tab and immediately show that match's profile panel
+  // Sets flags in localStorage to open profile panel automatically
   openChatProfileWith(matchedUserId: number) {
     if (!matchedUserId) {
       return;
@@ -708,7 +733,8 @@ export class AppComponent {
     this.setView('chat');
   }
 
-  //setup service to refresh profile status
+  // Setup service to refresh profile status
+  // Checks if current user has a profile created
   private refreshProfileStatus() {
     if (!this.userId) {
       this.hasProfile = false;
@@ -724,7 +750,8 @@ export class AppComponent {
     });
   }
 
-  //load all matches for the logged in user
+  // Load all matches for the logged in user
+  // Fetches matches from server and loads profile data for each match
   private loadMatches() {
     if (!this.userId) {
       this.matches = [];
@@ -770,7 +797,8 @@ export class AppComponent {
     });
   }
 
-  //setup html connections for opening the profile form
+  // Setup HTML connections for opening the profile form
+  // Loads existing profile data if available, otherwise shows empty form
   openProfileForm() {
     this.profileForm = {
       name: '',
@@ -807,12 +835,13 @@ export class AppComponent {
     });
   }
 
-  //exit profile form
+  // Exit profile form - closes the profile editing interface
   cancelProfileForm() {
     this.showProfileForm = false;
   }
 
-  //setup button for saving profile
+  // Setup button for saving profile
+  // Validates profile data and uploads photo if provided, then saves profile
   saveProfile() {
     // Enforce age between 18 and 100 (if provided)
     if (this.profileForm.age == null || isNaN(this.profileForm.age as any)) {
@@ -865,7 +894,8 @@ export class AppComponent {
     }
   }
 
-  //setup service to handle selecting a photo to use as a profile picture
+  // Setup service to handle selecting a photo to use as a profile picture
+  // Validates file size and creates preview using FileReader
   onPhotoSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     const file = input.files && input.files[0];
@@ -886,7 +916,7 @@ export class AppComponent {
     reader.readAsDataURL(file);
   }
 
-  //remove profile photo
+  // Remove profile photo - clears the photo preview and file reference
   removePhoto() {
     this.profilePhotoDataUrl = null;
     this.profilePhotoFile = null;

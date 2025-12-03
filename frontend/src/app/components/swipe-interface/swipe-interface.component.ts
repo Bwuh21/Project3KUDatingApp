@@ -8,13 +8,17 @@ Pre/Post Conditions: Enable clean html for transitions for swiping left and righ
 Errors: None
 */
 
+// Import Angular component and lifecycle hooks
 import { Component, OnInit } from '@angular/core';
+// Import profile service and data transfer objects
 import { ProfileService, ProfileDto } from '../../services/profile.service';
+// Import match service for creating matches
 import { MatchService } from '../../services/match.service';
+// Import preferences service and data transfer objects
 import { PreferencesService, PreferenceOptions, PreferencesDto, PreferencesUpsertDto } from '../../services/preferences.service';
 
 
-//define an interface for storing profile data
+// Define an interface for storing profile data in the component
 interface Profile {
   id: number;
   name: string;
@@ -28,9 +32,9 @@ interface Profile {
 }
 
 
-//define component with inlined html
-//component displays the swiping cards and defines elegant 
-//html assisted by gemini ai
+// Define component with inlined HTML
+// Component displays the swiping cards and defines elegant UI
+// HTML assisted by gemini AI
 @Component({
   selector: 'app-swipe-interface',
   template: `
@@ -583,49 +587,57 @@ interface Profile {
   `]
 })
 
-//define interface for swiping profiles
+// Define interface for swiping profiles component
 export class SwipeInterfaceComponent implements OnInit {
+  // Array of all profiles available for swiping
   profiles: Profile[] = [];
+  // Current index in the profiles array
   currentIndex = 0;
+  // Currently displayed profile card
   currentProfile: Profile | null = null;
+  // Array of profiles the user has liked (swiped right)
   likedProfiles: Profile[] = [];
+  // Array of profiles the user has passed (swiped left)
   passedProfiles: Profile[] = [];
+  // Loading state for profile queue
   isLoading = false;
 
-  // Filter state
-  preferenceOptions: PreferenceOptions | null = null;
-  selectedGenders: string[] = [];
-  minAge: number | null = null;
-  maxAge: number | null = null;
-  selectedYears: string[] = [];
-  filtersSaving = false;
+  // Filter state for preference filters
+  preferenceOptions: PreferenceOptions | null = null;  // Available filter options
+  selectedGenders: string[] = [];                      // Selected gender preferences
+  minAge: number | null = null;                        // Minimum age filter
+  maxAge: number | null = null;                        // Maximum age filter
+  selectedYears: string[] = [];                       // Selected year preferences
+  filtersSaving = false;                               // Whether filters are being saved
 
-  // Touch/Mouse handling
-  isDragging = false;
-  startX = 0;
-  startY = 0;
-  currentX = 0;
-  currentY = 0;
-  cardTransform = '';
-  cardOpacity = 1;
-  swipeDirection = '';
-  showMatchOverlay = false;
-  lastMatchedProfile: Profile | null = null;
+  // Touch/Mouse handling for swipe gestures
+  isDragging = false;              // Whether user is currently dragging the card
+  startX = 0;                       // Starting X coordinate of drag
+  startY = 0;                       // Starting Y coordinate of drag
+  currentX = 0;                     // Current X coordinate during drag
+  currentY = 0;                     // Current Y coordinate during drag
+  cardTransform = '';               // CSS transform string for card position
+  cardOpacity = 1;                  // Card opacity (decreases as swipe distance increases)
+  swipeDirection = '';               // Current swipe direction ('left' or 'right')
+  showMatchOverlay = false;         // Whether to show match animation overlay
+  lastMatchedProfile: Profile | null = null;  // Last profile that resulted in a match
 
+  // Constructor - injects required services
   constructor(
-    private profileService: ProfileService,
-    private matchService: MatchService,
-    private prefs: PreferencesService
+    private profileService: ProfileService,  // Service for profile operations
+    private matchService: MatchService,        // Service for match operations
+    private prefs: PreferencesService         // Service for preference filters
   ) { }
 
-  //on init load queue
+  // On component initialization, load profile queue and filters
   ngOnInit() {
     this.loadQueue();
     this.loadFilters();
   }
 
 
-  //load queues using backend
+  // Load queues using backend
+  // Fetches filtered list of profiles for swiping
   loadQueue() {
     const userId = Number(localStorage.getItem('user_id') || 0);
     if (!userId) {
@@ -649,6 +661,7 @@ export class SwipeInterfaceComponent implements OnInit {
   }
 
   // Load preference options and current user preferences
+  // Fetches available filter options and user's saved preferences
   private loadFilters() {
     const userId = Number(localStorage.getItem('user_id') || 0);
     if (!userId) {
@@ -715,7 +728,7 @@ export class SwipeInterfaceComponent implements OnInit {
     });
   }
 
-  //restructure serialized profile data
+  // Restructure serialized profile data from DTO to component Profile interface
   convertToProfile(dto: ProfileDto): Profile {
     return {
       id: dto.user_id,
@@ -742,14 +755,14 @@ export class SwipeInterfaceComponent implements OnInit {
     }
   }
 
-  //on start init start x and y
+  // On touch start - initialize drag start coordinates
   onTouchStart(event: TouchEvent) {
     this.startX = event.touches[0].clientX;
     this.startY = event.touches[0].clientY;
     this.isDragging = true;
   }
 
-  //drag on move
+  // Drag on move - update card position during touch drag
   onTouchMove(event: TouchEvent) {
     if (!this.isDragging) return;
 
@@ -759,7 +772,7 @@ export class SwipeInterfaceComponent implements OnInit {
   }
 
 
-  //unselect when leaving swiping 
+  // Unselect when leaving swiping - handle touch end event
   onTouchEnd(event: TouchEvent) {
     if (!this.isDragging) return;
 
@@ -767,7 +780,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.handleSwipeEnd();
   }
 
-  //enabel swiping with mouse down
+  // Enable swiping with mouse down - initialize drag for mouse events
   onMouseDown(event: MouseEvent) {
     this.startX = event.clientX;
     this.startY = event.clientY;
@@ -776,7 +789,7 @@ export class SwipeInterfaceComponent implements OnInit {
   }
 
 
-  //swipe with mouse move
+  // Swipe with mouse move - update card position during mouse drag
   onMouseMove(event: MouseEvent) {
     if (!this.isDragging) return;
 
@@ -785,7 +798,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.updateCardTransform();
   }
 
-  //mouse up
+  // Mouse up - handle mouse release event
   onMouseUp(event: MouseEvent) {
     if (!this.isDragging) return;
 
@@ -793,7 +806,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.handleSwipeEnd();
   }
 
-  //move card
+  // Move card - update CSS transform and opacity based on drag distance
   updateCardTransform() {
     const deltaX = this.currentX - this.startX;
     const deltaY = this.currentY - this.startY;
@@ -813,7 +826,8 @@ export class SwipeInterfaceComponent implements OnInit {
     this.cardOpacity = Math.max(0.3, 1 - distance / 300);
   }
 
-  //leave swiping
+  // Leave swiping - handle end of swipe gesture
+  // Determines if swipe was far enough to trigger like/pass action
   handleSwipeEnd() {
     const deltaX = this.currentX - this.startX;
 
@@ -831,7 +845,8 @@ export class SwipeInterfaceComponent implements OnInit {
     }
   }
 
-  //swipe right
+  // Swipe right - like a profile
+  // Creates a match if both users like each other
   swipeRight() {
     if (!this.currentProfile) return;
 
@@ -862,7 +877,7 @@ export class SwipeInterfaceComponent implements OnInit {
     }
   }
 
-  //swipe left
+  // Swipe left - pass on a profile
   swipeLeft() {
     if (!this.currentProfile) return;
 
@@ -870,7 +885,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.nextProfile();
   }
 
-  //go to next profile
+  // Go to next profile - advance to the next profile in the queue
   nextProfile() {
     this.currentIndex++;
     this.currentProfile = this.profiles[this.currentIndex] || null;
@@ -879,6 +894,7 @@ export class SwipeInterfaceComponent implements OnInit {
     this.swipeDirection = '';
   }
 
+  // Trigger match animation overlay when a mutual match occurs
   private triggerMatchAnimation(profile: Profile) {
     this.lastMatchedProfile = profile;
     this.showMatchOverlay = true;
